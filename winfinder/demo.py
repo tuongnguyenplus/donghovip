@@ -9,12 +9,12 @@ from typing import Any
 
 # (domain, page_name, số creative mới mỗi tuần — cũ → mới, các nước, reach/ad, search, tiêu đề ad, sản phẩm Shopify)
 PATTERNS: list[tuple] = [
-    ("postureglow.com", "PostureGlow", [0] * 7 + [1, 2, 3, 5, 8], ["IE", "NL", "DE"], 9000, "posture",
+    ("postureglow.com", "PostureGlow", [0, 0, 1, 1, 1, 2, 2, 3, 4, 5, 6, 8], ["IE", "NL", "DE"], 9000, "posture",
      ["PostureGlow™ Smart Posture Corrector", "Posture Corrector — 50% OFF today", "The posture corrector doctors recommend"],
      ["PostureGlow™ Smart Posture Corrector 2.0 - Adjustable", "Gift Card", "Shipping Protection"]),
-    ("spinealign.co", "SpineAlign", [0] * 8 + [2, 2, 4, 6], ["IE", "DK"], 4000, "posture",
+    ("spinealign.co", "SpineAlign", [0, 0, 0, 2, 3, 4, 5, 5, 6, 6, 7, 7], ["IE", "DK"], 4000, "posture",
      ["Posture Corrector Pro for desk workers", "SpineAlign Posture Corrector"], []),
-    ("backbuddy.store", "BackBuddy", [3] * 12, ["IE", "NL", "DE", "FR"], 15000, "posture",
+    ("backbuddy.store", "BackBuddy", [4] + [1] * 11, ["IE", "NL", "DE", "FR"], 15000, "posture",
      ["Adjustable Back Straightener", "Back Straightener — free shipping"], ["Back Straightener (Black)"]),
     ("starrynight.shop", "StarryNight", [0, 0, 4, 3, 2, 0, 0, 0, 0, 0, 0, 0], ["IE"], 1200, "posture",
      ["Galaxy Star Projector", "Star Projector for bedroom"], []),
@@ -22,10 +22,10 @@ PATTERNS: list[tuple] = [
      ["Cat Hair Remover — reusable", "Cat Hair Remover Roller", "The #1 cat hair remover"], ["Cat Hair Remover Roller"]),
     ("petlint.io", "PetLint", [1, 0, 2, 1, 0, 1, 2, 0, 1, 1, 0, 1], ["NL"], 800, "pet-grooming",
      ["Heated Dog Vest", "Heated dog vest for winter walks"], ["Heated Dog Vest - USB"]),
-    (None, "Groomy Paws", [0] * 9 + [2, 3, 5], ["IE"], 2500, "pet-grooming",
+    (None, "Groomy Paws", [0] * 8 + [2, 2, 2, 2], ["IE"], 2500, "pet-grooming",
      ["Self Cleaning Slicker Brush", "Slicker brush for long hair dogs"], []),
     # Tên sản phẩm chỉ là brand — tiêu đề ad không nói sản phẩm là gì
-    ("lifteyes.co", "LiftEyes", [0] * 7 + [1, 2, 3, 4, 7], ["IE", "NL", "DK"], 8000, "eye-care",
+    ("lifteyes.co", "LiftEyes", [0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 5, 7], ["IE", "NL", "DK"], 8000, "eye-care",
      ["LiftEyes™ — wake up looking 10 years younger", "LiftEyes: 10 minutes a day", "Why everyone loves LiftEyes"],
      [{"title": "LiftEyes™ Pro", "handle": "lifteyes-pro", "product_type": "Red Light Therapy Glasses",
        "tags": ["eye bags", "red light therapy", "puffy eyes"],
@@ -92,6 +92,21 @@ def _body(rng: random.Random, domain: str | None, t: float) -> str:
     return rng.choice(texts)
 
 
+# Vòng đời ad theo store: (hàm số ngày sống — None = vẫn đang chạy, mỗi ad một nội dung riêng?)
+#   w = vị trí tuần (0..n-1), i = thứ tự ad trong tuần
+LIFE = {
+    "postureglow.com": (lambda rng, w, i: None if rng.random() < 0.8 else rng.randint(7, 14), False),   # đang scale
+    "lifteyes.co": (lambda rng, w, i: None if rng.random() < 0.8 else rng.randint(7, 14), False),       # đang scale
+    "spinealign.co": (lambda rng, w, i: rng.randint(4, 12), True),                                       # máy xay
+    "backbuddy.store": (lambda rng, w, i: None if w == 0 else rng.randint(6, 10), False),               # evergreen
+    "starrynight.shop": (lambda rng, w, i: rng.randint(8, 12), False),                                   # đã dừng
+    "furrygroom.com": (lambda rng, w, i: None if rng.random() < 0.85 else rng.randint(7, 14), False),   # tăng sớm
+    "petlint.io": (lambda rng, w, i: rng.randint(20, 45), False),                                        # ổn định
+    "Groomy Paws": (lambda rng, w, i: rng.randint(4, 10), True),                                         # đang test
+}
+_WORDS = "bold calm crisp daring fresh gentle honest lively quiet rapid sharp smart steady sunny swift vivid".split()
+
+
 def generate(as_of: date, seed: int = 7) -> list[tuple[str, str, dict[str, Any]]]:
     """Trả về list (search, country, raw_ad)."""
     rng = random.Random(seed)
@@ -100,19 +115,24 @@ def generate(as_of: date, seed: int = 7) -> list[tuple[str, str, dict[str, Any]]
     for domain, page, weeks, countries, reach, search, titles, _products in PATTERNS:
         page_id = str(zlib.crc32(page.encode()))
         n = len(weeks)
+        life_fn, unique = LIFE.get(domain or page, (lambda rng, w, i: None, False))
         for w, count in enumerate(weeks):
-            for _ in range(count):
+            for i in range(count):
                 ad_id += 1
                 start = as_of - timedelta(days=(n - 1 - w) * 7 + rng.randint(0, 6))
-                stopped = rng.random() < 0.25 and w < n - 2
+                days = life_fn(rng, w, i)
+                stop = start + timedelta(days=days) if days is not None and start + timedelta(days=days) < as_of else None
+                body = _body(rng, domain, w / (n - 1))
+                if unique:  # mỗi ad một creative mới (không nhân bản)
+                    body += " " + " ".join(rng.choice(_WORDS) for _ in range(3))
                 raw = {
                     "id": str(ad_id),
                     "page_id": page_id,
                     "page_name": page,
                     "ad_creation_time": start.isoformat(),
                     "ad_delivery_start_time": start.isoformat(),
-                    "ad_delivery_stop_time": (start + timedelta(days=10)).isoformat() if stopped else None,
-                    "ad_creative_bodies": [_body(rng, domain, w / (n - 1))],
+                    "ad_delivery_stop_time": stop.isoformat() if stop else None,
+                    "ad_creative_bodies": [body],
                     "ad_creative_link_titles": [rng.choice(titles)],
                     "ad_creative_link_captions": [domain.upper()] if domain else [],
                     "ad_snapshot_url": f"https://www.facebook.com/ads/library/?id={ad_id}",

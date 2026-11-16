@@ -28,17 +28,30 @@ Chạy trên máy cá nhân còn có lợi là Google Trends ít bị chặn hơ
 Server chỉ nghe trên `127.0.0.1`. Mọi thao tác ghi cần token của phiên, và Host header được kiểm tra.
 Quét từ dòng lệnh: `winfinder scan` (tất cả) hoặc `winfinder scan --niche "eye care"`.
 
-## Cách chấm điểm (0–100)
+## Tư duy đo: ad đang sống, độ bền, nhân bản
 
-Ad được gom theo **domain** (lấy từ link caption), nếu không có domain thì gom theo page.
+**Tăng trưởng thật là lượng ad ĐANG SỐNG tăng**, không phải số creative mới ra. Store phải liên tục đẻ creative vì creative chết nhanh là "máy xay creative", khó scale. Ad bền là bằng chứng có lãi và dễ scale.
 
-- **velocity:** độ dốc số creative mới/tuần trong cửa sổ, đã chuẩn hóa theo trung bình.
-- **consistency:** tỉ lệ số tuần có creative mới.
-- **reach:** tổng `eu_total_reach`, tính theo thang log.
-- **newness:** tuổi store. Ưu tiên ngày đăng ký domain (RDAP), sau đó đến ngày cấp SSL đầu tiên (crt.sh), cuối cùng là ngày ad đầu tiên (chỉ là cận dưới, hiển thị dạng `≥`).
-- **spread:** số nước EU store đã chạy.
+| Chỉ số | Cách tính |
+|---|---|
+| Ad đang sống / tuần | Dựng lại từ ngày bắt đầu và ngày dừng của từng ad |
+| Đà tăng | Ad đang sống (2 tuần gần) / (tuần −6…−4) |
+| Sống sót 30 ngày | Trong các ad **đã đủ 30 ngày tuổi**, % sống ≥ 30 ngày (ad mới không kéo tỉ lệ xuống) |
+| Ad ≥ 30 / ≥ 60 ngày | Ad đang chạy đã sống ≥ 30 ngày (có lãi) / ≥ 60 ngày (evergreen) |
+| Nhân bản | Cùng nội dung creative được chạy lại vào ngày khác (media buyer chỉ nhân bản winner). API chỉ có chữ nên nhận diện theo nội dung chữ |
+| Thay creative | Ad mới 4 tuần / ad đang sống. Cao = phải đẻ creative liên tục |
 
-Nhãn **SCALE** được gắn khi thỏa đủ: tổng số ad ≥ `min_total_ads`, số tuần có ad ≥ `min_active_weeks`, nửa sau cửa sổ / nửa đầu ≥ `min_growth_ratio`, độ dốc > 0 và 2 tuần gần nhất vẫn còn ra creative. Mọi ngưỡng và trọng số nằm trong `config.yaml`.
+**Dạng store:**
+
+| Dạng | Khi nào |
+|---|---|
+| Đang scale | Ad đang sống tăng (≥ 1.5×) **và** ad bền (≥ 30% sống sót hoặc ≥ 2 ad ≥ 30 ngày) |
+| Tăng sớm | Ad đang sống tăng, nhưng chưa đủ 3 ad 30 ngày tuổi để chứng minh độ bền |
+| Máy xay creative | Ra nhiều ad nhưng < 15% sống được 30 ngày |
+| Evergreen | Ít ad mới, có ≥ 2 ad sống ≥ 60 ngày |
+| Đang test / Ổn định / Đang giảm / Đã dừng | Như tên gọi |
+
+Điểm store (0–100) = momentum 30% + độ bền 30% + nhân bản 10% + reach 10% + độ mới 10% + số thị trường 10%. Mọi ngưỡng nằm trong `config.yaml → durability`, trọng số nằm trong `weights`. Store chưa đủ tuổi thì độ bền được tính trung tính, không bị phạt.
 
 ## Trends: tăng bền vững hay chỉ là mùa vụ / nhất thời?
 
@@ -123,15 +136,16 @@ Một sản phẩm thường được bán bằng nhiều angle, mỗi angle nh�
 
 1. **Gom nội dung ad** (tiêu đề + nội dung) và bỏ trùng. Tối đa 150 nội dung/sản phẩm, ưu tiên nội dung chạy nhiều ad và mới nhất.
 2. **Claude chia 3–8 angle**, gồm tên angle, persona, nỗi đau/mong muốn, lời hứa và kiểu hook (problem-solution, testimonial, gift, before-after…). Claude gán từng ad vào angle và **đề xuất 2–4 angle chưa ai khai thác**. Phần này dùng structured output, `effort: medium` và stream, vì output dài.
-3. **Đo từng angle** bằng ngày bắt đầu chạy của ad, theo cùng cách đo creative velocity:
+3. **Đo từng angle** bằng số ad đang sống, theo cùng thước đo với store:
 
 | Trạng thái | Nghĩa |
 |---|---|
-| Đang lên | Nửa sau cửa sổ có ≥ 1.5× creative mới so với nửa đầu. Các store đang đổ tiền vào angle này |
+| Đang lên | Ad đang sống của angle tăng ≥ 1.5×. Các store đang đổ tiền vào angle này |
+| Creative chết nhanh | Ra nhiều ad cho angle này nhưng không ad nào sống lâu |
 | Mới xuất hiện | Angle mới có trong 3 tuần gần đây, trong khi sản phẩm đã chạy từ trước. Đây là tín hiệu store đang test angle mới |
 | Ổn định / Đang giảm / Đã dừng | Angle đã dừng là angle đã thua |
 
-Cột **tỉ trọng ad mới (4 tuần)** cho biết các store đang dồn creative vào angle nào.
+Cột **tỉ trọng ad đang sống** cho biết các store đang dồn tiền vào angle nào lúc này.
 Kết quả Claude được cache theo nội dung ad, nên tuần nào không có ad mới thì không gọi lại.
 Báo cáo nằm ở `reports/angles.html` và `reports/angles.json`. Từ trang Ứng viên bấm "xem angle →" để mở phần angle của sản phẩm đó.
 
@@ -166,7 +180,7 @@ Lưu ý: chạy hằng tuần mới tích lũy được lịch sử reach để 
 winfinder/
   sources/adlibrary.py   Meta Ad Library client (phân trang, xử lý rate limit)
   sources/domain.py      RDAP, crt.sh, Shopify products.json
-  analysis/velocity.py   creative mới/tuần + nhận diện phase scale
+  analysis/durability.py ad đang sống, độ bền, nhân bản, dạng store
   analysis/scoring.py    gom theo store, chấm điểm
   analysis/trends.py     tách mùa vụ, đo xu hướng, phân loại keyword/chủ đề
   sources/trends.py      SerpApi / Google Trends trực tiếp / CSV, keyword neo, Autocomplete

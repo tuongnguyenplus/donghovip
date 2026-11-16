@@ -34,13 +34,12 @@ log = logging.getLogger("winfinder")
 
 
 def _print_top(results, n: int = 15) -> None:
-    print(f"{'#':>3}  {'điểm':>5}  {'scale':5}  {'ad':>4}  {'tuổi':>5}  creative/tuần       store")
+    print(f"{'#':>3}  {'điểm':>5}  {'dạng':10} {'sống':>4} {'s30':>4} {'≥30d':>4}  ad đang sống/tuần            store")
     for i, s in enumerate(results[:n], 1):
-        print(
-            f"{i:>3}  {s.score:>5.1f}  {'✔' if s.scaling else '':5}  {s.ad_count:>4}  "
-            f"{(str(s.age_days) + 'd') if s.age_days is not None else '–':>5}  "
-            f"{' '.join(map(str, s.window['counts'])):18}  {s.domain or s.key}"
-        )
+        d = s.durability
+        s30 = "–" if d["survival_30"] is None else f"{d['survival_30'] * 100:.0f}%"
+        print(f"{i:>3}  {s.score:>5.1f}  {s.archetype:10} {d['active_now']:>4} {s30:>4} {d['alive_30']:>4}  "
+              f"{' '.join(map(str, s.history[-8:])):28} {s.domain or s.key}")
 
 
 def _report(conn, cfg, today: date) -> list:

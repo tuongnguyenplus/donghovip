@@ -71,6 +71,12 @@ def page(heading: str, body: str, active: str) -> str:
     )
 
 
+ARCH_SHORT = {"scaling": "Đang scale", "early": "Tăng sớm", "evergreen": "Evergreen", "steady": "Ổn định",
+              "testing": "Đang test", "treadmill": "Máy xay creative", "declining": "Đang giảm", "stopped": "Đã dừng"}
+ARCH_COLORS = {"scaling": "#1a7f4b", "early": "#6b4fd8", "evergreen": "#2c6fb7", "steady": "#6b6b66",
+               "testing": "#8a8a85", "treadmill": "#d35400", "declining": "#c0392b", "stopped": "#8a8a85"}
+
+
 def render_html(results: list[StoreResult], as_of: date, limit: int = 200) -> str:
     rows = []
     for i, s in enumerate(results[:limit], 1):
@@ -83,26 +89,37 @@ def render_html(results: list[StoreResult], as_of: date, limit: int = 200) -> st
             for a in s.sample_ads
         )
         comps = " ".join(f'<span class="chip">{_e(k)} {v:.2f}</span>' for k, v in s.components.items())
-        badge = '<span class="badge">SCALE</span>' if s.scaling else ""
+        d = s.durability
+        color = ARCH_COLORS.get(s.archetype, "#6b6b66")
+        badge = f'<span class="lbl" style="background:{color}">{_e(ARCH_SHORT.get(s.archetype, s.archetype))}</span>'
+        surv = "–" if d["survival_30"] is None else f'{d["survival_30"] * 100:.0f}%'
         rows.append(
             f"""<tr>
 <td class="num">{i}</td>
-<td><div class="store">{link} {badge}</div><div class="muted">{_e(", ".join(s.page_names[:2]))}</div>
-<details><summary>Chi tiết</summary><div class="chips">{comps}</div><ul>{samples}</ul></details></td>
+<td><div class="store">{link}</div><div class="muted">{_e(", ".join(s.page_names[:2]))}</div>
+<details><summary>Chi tiết</summary><div class="chips">{comps}</div>
+<div class="muted">{_e("; ".join(d["notes"]))}</div><ul>{samples}</ul></details></td>
+<td>{badge}<div class="muted" style="max-width:220px">{_e(s.archetype_vi.split(" — ")[-1])}</div></td>
 <td class="num score">{s.score:.0f}</td>
-<td class="trend">{_sparkline(s.history)}<div class="muted">tỉ lệ {s.window["growth_ratio"]}× · {s.window["active_weeks"]}/{len(s.window["counts"])} tuần</div></td>
-<td class="num">{s.ad_count}<div class="muted">{s.live_ads} live</div></td>
-<td class="num">{s.eu_reach:,}</td>
+<td class="trend">{_sparkline(s.history)}<div class="muted">{d["active_now"]} đang chạy · đà {d["active_growth"]}×</div></td>
+<td class="num">{surv}<div class="muted">{d["aged_ads"]} ad đủ tuổi</div></td>
+<td class="num">{d["alive_30"]} / {d["alive_60"]}<div class="muted">cũ nhất {_e(d["oldest_active_days"] or "–")} ngày</div></td>
+<td class="num">{d["dup_share"] * 100:.0f}%<div class="muted">{d["duplicated_creatives"]}/{d["creatives"]} creative</div></td>
+<td class="num">{d["turnover"]}<div class="muted">{d["launches_4w"]} ad mới/4 tuần</div></td>
 <td class="num">{"≥" if s.age_source == "first_ad" else ""}{_e(s.age_days)}d<div class="muted">{_e(s.age_source)}</div></td>
-<td>{_e(" ".join(s.countries))}</td>
-<td>{_e(", ".join(s.searches))}</td>
+<td>{_e(" ".join(s.countries))}<div class="muted">{_e(", ".join(s.searches))}</div></td>
 </tr>"""
         )
-    n_scaling = sum(1 for s in results if s.scaling)
-    body = f"""<div class="muted">Dữ liệu đến {as_of.isoformat()} · {len(results)} store · {n_scaling} đang scale · nguồn: Meta Ad Library (EU)</div>
+    counts = {a: sum(1 for s in results if s.archetype == a) for a in ARCH_SHORT}
+    legend = " · ".join(f"{ARCH_SHORT[a]}: {n}" for a, n in counts.items() if n)
+    body = f"""<style>.lbl{{display:inline-block;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}}</style>
+<div class="muted">Dữ liệu đến {as_of.isoformat()} · {len(results)} store · {_e(legend)} · nguồn: Meta Ad Library (EU)</div>
+<div class="muted">Tăng trưởng thật = số ad ĐANG SỐNG tăng. Sống sót = % ad đủ 30 ngày tuổi còn sống ≥ 30 ngày.
+Thay creative = ad mới 4 tuần / ad đang sống (cao = phải đẻ creative liên tục, khó scale).</div>
 <div class="wrap"><table>
-<thead><tr><th class="num">#</th><th>Store</th><th class="num">Điểm</th><th>Creative mới / tuần (12 tuần)</th>
-<th class="num">Ad</th><th class="num">EU reach</th><th class="num">Tuổi</th><th>Thị trường</th><th>Ngách</th></tr></thead>
+<thead><tr><th class="num">#</th><th>Store</th><th>Dạng</th><th class="num">Điểm</th><th>Ad đang sống / tuần (12 tuần)</th>
+<th class="num">Sống sót 30 ngày</th><th class="num">Ad ≥30 / ≥60 ngày</th><th class="num">Nhân bản</th>
+<th class="num">Thay creative</th><th class="num">Tuổi</th><th>Thị trường · ngách</th></tr></thead>
 <tbody>{"".join(rows)}</tbody></table></div>"""
     return page("Store đang scale", body, active="index.html")
 

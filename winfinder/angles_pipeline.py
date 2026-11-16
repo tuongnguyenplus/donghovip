@@ -69,7 +69,7 @@ def run_angles(
                 (product, fp, json.dumps(result.to_dict(), ensure_ascii=False), result.model, today.isoformat()),
             )
             conn.commit()
-        stats = angle_stats(result, units, meta, today, cfg.velocity_weeks)
+        stats = angle_stats(result, units, meta, today, cfg.durability)
         out.append(ProductAngles(
             product=product, generic=g["generic"], stores=g["stores"], units=len(units),
             assigned=sum(1 for u in units if u.ref in result.assignments),

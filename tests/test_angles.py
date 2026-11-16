@@ -47,14 +47,14 @@ def test_parse_result_drops_unknown_refs_and_angles():
 
 def test_angle_status():
     start = AS_OF - timedelta(weeks=10)
-    assert angle_status([0] * 6 + [1, 1, 2, 3, 4, 6], start, AS_OF, 6, start) == "rising"
-    assert angle_status([3] * 12, start, AS_OF, 6, start) == "steady"
-    assert angle_status([5, 5, 5, 5, 5, 5, 6, 5, 3, 2, 1, 1], start, AS_OF, 6, start) == "declining"
-    assert angle_status([2] * 8 + [0] * 4, start, AS_OF, 6, start) == "stopped"
     recent = AS_OF - timedelta(days=10)
-    assert angle_status([0] * 10 + [2, 3], recent, AS_OF, 6, start) == "new"
+    assert angle_status("scaling", start, AS_OF, start, 5) == "rising"
+    assert angle_status("treadmill", start, AS_OF, start, 5) == "churn"
+    assert angle_status("declining", start, AS_OF, start, 2) == "declining"
+    assert angle_status("steady", start, AS_OF, start, 0) == "stopped"
+    assert angle_status("early", recent, AS_OF, start, 3) == "new"
     # store mới mở: angle mới nhưng sản phẩm cũng mới → không gắn 'new'
-    assert angle_status([0] * 10 + [2, 3], recent, AS_OF, 6, recent) != "new"
+    assert angle_status("early", recent, AS_OF, recent, 3) == "rising"
 
 
 def test_angle_stats_shares_sum_to_one():

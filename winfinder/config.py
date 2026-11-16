@@ -5,6 +5,8 @@ from pathlib import Path
 
 import yaml
 
+from winfinder.analysis.durability import DurabilityRules
+
 
 @dataclass
 class Search:
@@ -77,21 +79,19 @@ class Config:
     request_sleep_seconds: float
     searches: list[Search]
     exclude_domains: set[str]
-    velocity_weeks: int
-    min_total_ads: int
-    min_active_weeks: int
-    min_growth_ratio: float
     new_store_days: int
     enrich_top_n: int
     enrich_sleep_seconds: float
     weights: dict[str, float]
     niches_file: Path = Path("niches.yaml")
     trends: TrendsConfig = field(default_factory=TrendsConfig)
+    durability: DurabilityRules = field(default_factory=DurabilityRules)
     link: LinkConfig = field(default_factory=LinkConfig)
     angles: AnglesConfig = field(default_factory=AnglesConfig)
 
 
-DEFAULT_WEIGHTS = {"velocity": 0.35, "consistency": 0.15, "reach": 0.2, "newness": 0.15, "spread": 0.15}
+DEFAULT_WEIGHTS = {"momentum": 0.30, "durability": 0.30, "duplication": 0.10, "reach": 0.10, "newness": 0.10,
+                   "spread": 0.10}
 
 
 def load_config(path: str | Path) -> Config:
@@ -99,7 +99,6 @@ def load_config(path: str | Path) -> Config:
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     base = path.parent
     al = raw.get("ad_library", {})
-    vel = raw.get("velocity", {})
     enrich = raw.get("enrich", {})
     searches = [
         Search(name=s["name"], keywords=list(s["keywords"]), languages=list(s.get("languages") or []))
@@ -121,19 +120,21 @@ def load_config(path: str | Path) -> Config:
         searches=searches,
         niches_file=niches_file,
         exclude_domains={d.lower() for d in raw.get("exclude_domains", [])},
-        velocity_weeks=int(vel.get("weeks", 6)),
-        min_total_ads=int(vel.get("min_total_ads", 5)),
-        min_active_weeks=int(vel.get("min_active_weeks", 3)),
-        min_growth_ratio=float(vel.get("min_growth_ratio", 1.5)),
         new_store_days=int(raw.get("new_store_days", 90)),
         enrich_top_n=int(enrich.get("top_n", 30)),
         enrich_sleep_seconds=float(enrich.get("request_sleep_seconds", 1.0)),
         weights={**DEFAULT_WEIGHTS, **(raw.get("weights") or {})},
         trends=_load_trends(raw.get("trends") or {}, base, searches),
         link=_load_link(raw.get("link") or {}),
+        durability=_load_durability(raw.get("durability") or {}),
         angles=AnglesConfig(**{k: v for k, v in (raw.get("angles") or {}).items()
                                if k in AnglesConfig.__dataclass_fields__}),
     )
+
+
+def _load_durability(x: dict) -> DurabilityRules:
+    return DurabilityRules(**{k: type(getattr(DurabilityRules, k))(v) for k, v in x.items()
+                              if k in DurabilityRules.__dataclass_fields__})
 
 
 def _load_link(x: dict) -> LinkConfig:

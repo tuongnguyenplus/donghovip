@@ -9,7 +9,7 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import date
 
-from winfinder.analysis.velocity import Growth, growth, is_scaling, weekly_counts
+from winfinder.analysis.durability import AdLife, Durability, creative_key, measure
 from winfinder.config import Config
 
 HISTORY_WEEKS = 12  # số tuần hiển thị trên sparkline
@@ -28,9 +28,14 @@ class StoreResult:
     first_ad_date: str | None
     age_days: int | None
     age_source: str | None       # rdap | crt.sh | first_ad
-    history: list[int]           # creative mới / tuần, HISTORY_WEEKS tuần
-    window: dict                 # chỉ số Growth trong cửa sổ velocity
-    scaling: bool
+    history: list[int]           # ad ĐANG SỐNG mỗi tuần, HISTORY_WEEKS tuần (thước đo chính)
+    launch_history: list[int]    # ad mới mỗi tuần
+    window: dict                 # đà tăng ad đang sống
+    scaling: bool                # đang scale hoặc tăng sớm (ad đang sống tăng)
+    proven: bool                 # có bằng chứng có lãi: ad bền (scaling / evergreen)
+    archetype: str
+    archetype_vi: str
+    durability: dict
     components: dict[str, float]
     score: float
     shopify: dict | None = None
@@ -53,11 +58,16 @@ def _newness(age_days: int | None, new_store_days: int) -> float:
     return _clamp(1 - (age_days - new_store_days) / new_store_days)
 
 
-def components(g: Growth, eu_reach: int, n_countries: int, age_days: int | None, cfg: Config) -> dict[str, float]:
+def components(d: Durability, eu_reach: int, n_countries: int, age_days: int | None, cfg: Config) -> dict[str, float]:
+    if d.survival_30 is None or d.aged_ads < cfg.durability.min_aged_ads:
+        durab = 0.4 * _clamp(d.alive_30 / 5) + 0.3  # chưa đủ tuổi → trung tính, không phạt
+    else:
+        durab = 0.6 * d.survival_30 + 0.4 * _clamp(d.alive_30 / 5)
     return {
-        "velocity": _clamp(g.slope_norm / 0.25) if g.slope > 0 else 0.0,
-        "consistency": g.active_weeks / len(g.counts) if g.counts else 0.0,
-        "reach": _clamp(math.log10(eu_reach + 1) / 6),  # 1M reach → 1.0
+        "momentum": _clamp((d.active_growth - 1) / 1.5),         # ad đang sống ×2.5 → 1.0
+        "durability": round(durab, 3),
+        "duplication": d.dup_share,
+        "reach": _clamp(math.log10(eu_reach + 1) / 6),           # 1M reach → 1.0
         "newness": _newness(age_days, cfg.new_store_days),
         "spread": _clamp(n_countries / 3),
     }
@@ -98,8 +108,13 @@ def analyze(conn: sqlite3.Connection, cfg: Config, as_of: date, search: str | No
         if not starts:
             continue
         domain = rows[0]["domain"]
-        g = growth(weekly_counts(starts, as_of, cfg.velocity_weeks))
-        history = weekly_counts(starts, as_of, HISTORY_WEEKS)
+        lives = [
+            AdLife(_d(r["start_date"]), _d(r["stop_date"]),
+                   creative_key((json.loads(r["titles"] or "[]") or [""])[0],
+                                (json.loads(r["bodies"] or "[]") or [""])[0]))
+            for r in rows if r["start_date"]
+        ]
+        dur = measure(lives, as_of, HISTORY_WEEKS, cfg.durability)
         countries = sorted(set().union(*(countries_by_ad[r["ad_id"]] for r in rows)))
         eu_reach = sum(r["eu_total_reach"] or 0 for r in rows)
         first_ad = min(starts)
@@ -112,7 +127,7 @@ def analyze(conn: sqlite3.Connection, cfg: Config, as_of: date, search: str | No
             age_source, born = "crt.sh", date.fromisoformat(dom["first_cert_at"])
         age_days = (as_of - born).days
 
-        comps = components(g, eu_reach, len(countries), age_days, cfg)
+        comps = components(dur, eu_reach, len(countries), age_days, cfg)
         top = sorted(rows, key=lambda r: r["eu_total_reach"] or 0, reverse=True)[:3]
         results.append(
             StoreResult(
@@ -127,19 +142,15 @@ def analyze(conn: sqlite3.Connection, cfg: Config, as_of: date, search: str | No
                 first_ad_date=first_ad.isoformat(),
                 age_days=age_days,
                 age_source=age_source,
-                history=history,
-                window={
-                    "counts": g.counts,
-                    "active_weeks": g.active_weeks,
-                    "slope": round(g.slope, 2),
-                    "growth_ratio": round(g.growth_ratio, 2),
-                },
-                scaling=is_scaling(
-                    g,
-                    min_total_ads=cfg.min_total_ads,
-                    min_active_weeks=cfg.min_active_weeks,
-                    min_growth_ratio=cfg.min_growth_ratio,
-                ),
+                history=dur.active_history,
+                launch_history=dur.launch_history,
+                window={"active_growth": dur.active_growth, "active_now": dur.active_now,
+                        "launches_4w": dur.launches_4w},
+                scaling=dur.archetype in ("scaling", "early"),
+                proven=dur.archetype in ("scaling", "evergreen") or dur.alive_30 >= 2,
+                archetype=dur.archetype,
+                archetype_vi=dur.archetype_vi,
+                durability=dur.to_dict(),
                 components={k: round(v, 3) for k, v in comps.items()},
                 score=weighted_score(comps, cfg.weights),
                 shopify=(
@@ -159,6 +170,6 @@ def analyze(conn: sqlite3.Connection, cfg: Config, as_of: date, search: str | No
                 ],
             )
         )
-    # Store đang scale lên trước, sau đó theo điểm
-    results.sort(key=lambda s: (s.scaling, s.score), reverse=True)
+    # Store đang scale có bằng chứng lên trước, rồi tăng sớm, sau đó theo điểm
+    results.sort(key=lambda s: (s.archetype == "scaling", s.scaling, s.score), reverse=True)
     return results

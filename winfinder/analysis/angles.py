@@ -18,7 +18,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date
 from typing import Protocol
 
-from winfinder.analysis.velocity import growth, weekly_counts
+from winfinder.analysis.durability import AdLife, DurabilityRules, measure
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +31,7 @@ ANGLE_LABELS = {
     "rising": "Đang lên",
     "new": "Mới xuất hiện",
     "steady": "Ổn định",
+    "churn": "Creative chết nhanh",
     "declining": "Đang giảm",
     "stopped": "Đã dừng",
 }
@@ -157,7 +158,8 @@ def ad_units(conn: sqlite3.Connection, store_keys: list[str]) -> tuple[list[AdUn
             text = " | ".join(t for t in (title.strip(), body.strip()) if t)[:UNIT_CHARS]
             if not text:
                 continue
-            meta[r["ad_id"]] = {"start": r["start_date"], "store": key, "reach": r["eu_total_reach"] or 0}
+            meta[r["ad_id"]] = {"start": r["start_date"], "stop": r["stop_date"], "store": key,
+                                "reach": r["eu_total_reach"] or 0}
             u = by_text.setdefault(text.lower(), {"text": text, "ads": [], "stores": set(), "starts": [], "reach": 0})
             u["ads"].append(r["ad_id"])
             u["stores"].add(key)
@@ -255,65 +257,66 @@ class AngleStats:
     ads: int
     stores: list[str]
     reach: int
-    history: list[int]           # ad mới / tuần, 12 tuần
-    recent_share: float          # tỉ trọng trong ad mới 4 tuần gần nhất
-    growth_ratio: float
+    history: list[int]           # ad ĐANG SỐNG / tuần, 12 tuần
+    recent_share: float          # tỉ trọng trong số ad đang sống hiện tại
+    growth_ratio: float          # đà tăng ad đang sống
     first_seen: str | None
+    survival_30: float | None = None
+    alive_30: int = 0
     samples: list[str] = field(default_factory=list)
 
 
-def angle_status(history: list[int], first_seen: date | None, as_of: date, window: int,
-                 product_first: date | None = None) -> str:
-    """'new' chỉ khi angle xuất hiện ≤ 3 tuần nay VÀ sản phẩm đã chạy ad từ trước đó ≥ 3 tuần
+def angle_status(arch: str, first_seen: date | None, as_of: date, product_first: date | None,
+                 active_now: int) -> str:
+    """Trạng thái angle từ dạng tăng trưởng (cùng thước đo store).
+
+    'new' chỉ khi angle xuất hiện ≤ 3 tuần nay VÀ sản phẩm đã chạy ad từ trước đó ≥ 3 tuần
     (store mới mở thì mọi angle đều 'mới' — không có ý nghĩa)."""
-    g = growth(history[-window:])
-    if (first_seen and (as_of - first_seen).days <= 21 and g.total > 0
+    if active_now == 0:
+        return "stopped"
+    if (first_seen and (as_of - first_seen).days <= 21
             and product_first and (first_seen - product_first).days >= 21):
         return "new"
-    if not g.recent:
-        return "stopped"
-    if g.growth_ratio >= 1.5 and g.slope > 0:
-        return "rising"
-    if g.growth_ratio <= 0.67 and g.slope < 0:
-        return "declining"
-    return "steady"
+    return {"scaling": "rising", "early": "rising", "treadmill": "churn", "declining": "declining",
+            "stopped": "stopped"}.get(arch, "steady")
 
 
 def angle_stats(result: AngleResult, units: list[AdUnit], meta: dict[str, dict], as_of: date,
-                window: int = 6) -> list[AngleStats]:
+                rules: DurabilityRules | None = None) -> list[AngleStats]:
     by_angle: dict[str, list[AdUnit]] = {a.id: [] for a in result.angles}
     for u in units:
         aid = result.assignments.get(u.ref)
         if aid in by_angle:
             by_angle[aid].append(u)
 
-    recent_total = 0
+    def d(s):
+        return date.fromisoformat(s) if s else None
+
     tmp = []
     for a in result.angles:
         us = by_angle[a.id]
-        ad_ids = [i for u in us for i in u.ad_ids]
-        starts = [date.fromisoformat(meta[i]["start"]) for i in ad_ids if meta.get(i, {}).get("start")]
-        hist = weekly_counts(starts, as_of, 12)
-        recent = sum(hist[-4:])
-        recent_total += recent
-        first = min(starts) if starts else None
-        tmp.append((a, us, ad_ids, hist, recent, first))
+        lives = [AdLife(d(meta[i]["start"]), d(meta[i].get("stop")), u.text)
+                 for u in us for i in u.ad_ids if meta.get(i, {}).get("start")]
+        if not lives:
+            continue
+        tmp.append((a, us, lives, measure(lives, as_of, 12, rules)))
 
-    firsts = [f for *_, f in tmp if f]
+    total_active = sum(m.active_now for *_, m in tmp)
+    firsts = [min(x.start for x in lives) for _, _, lives, _ in tmp]
     product_first = min(firsts) if firsts else None
     out = []
-    for a, us, ad_ids, hist, recent, first in tmp:
-        if not ad_ids:
-            continue
-        st = angle_status(hist, first, as_of, window, product_first)
+    for a, us, lives, m in tmp:
+        first = min(x.start for x in lives)
+        st = angle_status(m.archetype, first, as_of, product_first, m.active_now)
         out.append(AngleStats(
-            angle=a, status=st, status_vi=ANGLE_LABELS[st], ads=len(ad_ids),
+            angle=a, status=st, status_vi=ANGLE_LABELS[st], ads=len(lives),
             stores=sorted({s for u in us for s in u.stores}), reach=sum(u.reach for u in us),
-            history=hist, recent_share=round(recent / recent_total, 3) if recent_total else 0.0,
-            growth_ratio=round(growth(hist[-window:]).growth_ratio, 2),
-            first_seen=first.isoformat() if first else None,
+            history=m.active_history,
+            recent_share=round(m.active_now / total_active, 3) if total_active else 0.0,
+            growth_ratio=m.active_growth, first_seen=first.isoformat(),
+            survival_30=m.survival_30, alive_30=m.alive_30,
             samples=[u.text for u in sorted(us, key=lambda u: -u.reach)[:2]],
         ))
-    order = {"rising": 0, "new": 1, "steady": 2, "declining": 3, "stopped": 4}
+    order = {"rising": 0, "new": 1, "steady": 2, "churn": 3, "declining": 4, "stopped": 5}
     out.sort(key=lambda s: (order[s.status], -s.recent_share))
     return out

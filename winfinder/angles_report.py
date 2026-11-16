@@ -14,6 +14,7 @@ STATUS_COLORS = {
     "rising": "#1a7f4b",
     "new": "#6b4fd8",
     "steady": "#6b6b66",
+    "churn": "#d35400",
     "declining": "#c0392b",
     "stopped": "#8a8a85",
 }
@@ -46,7 +47,7 @@ def _card(p: ProductAngles) -> str:
 <td>{_e(a.angle.persona)}<div class="muted">{_e(a.angle.pain_point)}</div></td>
 <td>{_e(a.angle.promise)}</td>
 <td><span class="lbl" style="background:{STATUS_COLORS[a.status]}">{_e(a.status_vi)}</span></td>
-<td>{_sparkline(a.history)}<div class="muted">tỉ lệ {a.growth_ratio}×</div></td>
+<td>{_sparkline(a.history)}<div class="muted">đà {a.growth_ratio}× · {a.alive_30} ad ≥30 ngày</div></td>
 <td class="share">{a.recent_share * 100:.0f}%<div class="bar"><i style="width:{a.recent_share * 100:.0f}%"></i></div></td>
 <td class="num">{a.ads}<div class="muted">{len(a.stores)} store</div></td>
 <td class="sample">{_e(a.samples[0] if a.samples else "")}</td>
@@ -70,7 +71,7 @@ def _card(p: ProductAngles) -> str:
 {p.units} nội dung ad, đã phân loại {p.assigned}</span>
 <p style="margin:6px 0 0">{_e(summary)}</p>
 <table><thead><tr><th>Angle</th><th>Persona · nỗi đau</th><th>Lời hứa</th><th>Trạng thái</th>
-<th>Ad mới / tuần (12 tuần)</th><th>Tỉ trọng ad mới (4 tuần)</th><th class="num">Ad</th><th>Ví dụ</th></tr></thead>
+<th>Ad đang sống / tuần (12 tuần)</th><th>Tỉ trọng ad đang sống</th><th class="num">Ad</th><th>Ví dụ</th></tr></thead>
 <tbody>{rows}</tbody></table>
 {f'<div class="untapped"><h3>Angle chưa ai khai thác</h3><ul>{untapped}</ul></div>' if untapped else ""}
 </section>"""
@@ -80,8 +81,8 @@ def render(products: list[ProductAngles], as_of: date, note: str = "") -> str:
     body = (
         f"<style>{CSS}</style>"
         f'<div class="muted">Dữ liệu đến {as_of.isoformat()} · {len(products)} sản phẩm · '
-        "angle do Claude phân loại từ nội dung ad của các store đang bán; “Đang lên” = nhiều creative mới hơn hẳn "
-        f"so với các tuần trước{(' · ' + _e(note)) if note else ''}</div>"
+        "angle do Claude phân loại từ nội dung ad của các store đang bán; “Đang lên” = số ad ĐANG SỐNG của angle tăng; "
+        f"“Creative chết nhanh” = ra nhiều nhưng không ad nào sống lâu{(' · ' + _e(note)) if note else ''}</div>"
         f'<div class="cards">{"".join(_card(p) for p in products) or "<p>Chưa có sản phẩm nào đủ dữ liệu.</p>"}</div>'
     )
     return page("Angle", body, active="angles.html")

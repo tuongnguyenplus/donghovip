@@ -34,11 +34,15 @@ exclude_domains:
   - apps.apple.com
   - play.google.com
 
-velocity:
-  weeks: 6                 # cửa sổ xét tăng trưởng (tuần)
-  min_total_ads: 5         # ít hơn → bỏ qua, chưa đủ tín hiệu
-  min_active_weeks: 3      # số tuần có ra creative mới trong cửa sổ
-  min_growth_ratio: 1.5    # nửa sau cửa sổ / nửa đầu cửa sổ
+# Đà tăng + độ bền ad (thước đo chính): tăng trưởng thật = ad ĐANG SỐNG tăng, ad bền = có lãi, dễ scale
+durability:
+  profit_days: 30          # ad sống ≥ N ngày = bằng chứng có lãi
+  evergreen_days: 60       # ad sống ≥ N ngày = evergreen
+  momentum_ratio: 1.5      # ad đang sống (2 tuần gần) / (tuần -6..-4) ≥ N = đang tăng
+  min_aged_ads: 3          # cần ≥ N ad đủ tuổi mới kết luận về độ bền
+  durable_survival: 0.3    # ≥ 30% ad đủ tuổi sống được ≥ profit_days = bền
+  treadmill_survival: 0.15 # < 15% sống được + ra nhiều ad mới = máy xay creative
+  treadmill_launches_4w: 6
 
 new_store_days: 90         # store/domain "mới" nếu tuổi ≤ N ngày
 
@@ -105,8 +109,9 @@ angles:
   max_products: 15      # chỉ phân tích N sản phẩm điểm ứng viên cao nhất
 
 weights:
-  velocity: 0.35     # độ dốc creative mới / tuần
-  consistency: 0.15  # số tuần liên tục có creative mới
-  reach: 0.20        # eu_total_reach
-  newness: 0.15      # store mới
-  spread: 0.15       # số thị trường EU đã chạy
+  momentum: 0.30     # ad đang sống tăng
+  durability: 0.30   # tỉ lệ sống sót ≥ 30 ngày + số ad bền đang chạy
+  duplication: 0.10  # % ad đang sống thuộc creative được nhân bản
+  reach: 0.10        # eu_total_reach
+  newness: 0.10      # store mới
+  spread: 0.10       # số thị trường đã chạy
