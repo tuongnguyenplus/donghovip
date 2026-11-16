@@ -59,17 +59,43 @@ winfinder trends --provider direct                 # chạy miễn phí từ má
 
 Báo cáo nằm ở `reports/trends.html` và `reports/trends.json`.
 
+## Ứng viên: nối store đang scale với nhu cầu thị trường
+
+`winfinder link` lấy top store theo điểm ad, sau đó:
+
+1. **Rút keyword sản phẩm** từ tiêu đề ad, nội dung ad và tên sản phẩm Shopify, không cần LLM:
+   - bỏ tên brand (domain, tên page), số, %, từ marketing, màu và size; gộp số nhiều về số ít;
+   - cộng điểm theo nguồn: sản phẩm Shopify trùng với ad (hero product) ×3, tiêu đề ad ×2, nội dung ad ×1, cụm đứng cuối (thường là danh từ chính) ×1.5, cụm khớp keyword ngách trong `searches` ×2;
+   - bỏ các cụm 2 từ luôn dính với cùng một từ bên cạnh (vd "smart posture", "hair remover" khi luôn là "cat hair remover");
+   - keyword phụ phải có từ chung với keyword neo.
+2. **Chạy Trends cho sản phẩm.** Các store bán cùng sản phẩm dùng chung một lần gọi, và keyword của chúng được gộp lại.
+3. **Đếm đối thủ:** số store khác có ad nhắc tới keyword đó.
+4. **Kết luận**, với điểm tổng = 55% điểm ad + 45% điểm trends:
+
+| Kết luận | Khi nào |
+|---|---|
+| Ứng viên mạnh | Store có nhãn SCALE và nhu cầu đang tăng bền vững hoặc bùng nổ |
+| Nhu cầu đang lên | Nhu cầu tăng nhưng store chưa scale rõ |
+| Mùa vụ, đang vào mùa / ngoài mùa | Nhu cầu mùa vụ. Đang vào mùa thì là cơ hội ngắn hạn |
+| Ít người tìm kiếm | Trends không có dữ liệu. Nhu cầu do ads tạo ra (sản phẩm impulse), nên dựa vào ad growth và angle |
+| Bão hòa | Nhu cầu ổn định. Chỉ vào nếu có angle khác biệt |
+| Rủi ro | Nhu cầu đang giảm hoặc đã qua đỉnh |
+
+Nếu tool rút sai keyword, đặt tay trong `config.yaml → link.overrides`, vd `postureglow.com: ["posture corrector"]`.
+Báo cáo nằm ở `reports/winners.html` và `reports/winners.json`.
+
 ## Chạy
 
 ```bash
 pip install -e ".[dev]"
 
-winfinder demo                      # dữ liệu giả lập, không cần token → demo_out/index.html + trends.html
+winfinder demo                      # dữ liệu giả lập, không cần token → demo_out/winners.html, index.html, trends.html
 pytest -q
 
 export META_AD_LIBRARY_TOKEN=...    # token Ad Library API
 winfinder run                       # collect → enrich → analyze → reports/index.html
 winfinder analyze --enrich          # chấm lại từ DB hiện có
+winfinder link                      # store → keyword sản phẩm → Trends → reports/winners.html
 ```
 
 ## Chạy tự động trên GitHub Actions
@@ -93,6 +119,9 @@ winfinder/
   sources/trends.py      SerpApi / Google Trends trực tiếp / CSV, keyword neo, Autocomplete
   trends_pipeline.py     chủ đề × thị trường, cache, ước TAM, mức độ lan rộng
   trends_report.py       báo cáo Trends
+  analysis/keywords.py   rút keyword sản phẩm từ ad + Shopify
+  link.py                nối store ↔ Trends, kết luận, điểm tổng
+  link_report.py         trang Ứng viên
   pipeline.py            collect / enrich
   report.py              xuất JSON + HTML
   demo.py                dữ liệu giả lập

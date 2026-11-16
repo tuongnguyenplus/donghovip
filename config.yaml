@@ -82,6 +82,15 @@ trends:
       seeds: ["cat hair remover"]
       keywords: ["dog grooming brush", "pet hair remover"]
 
+# Nối store (Ad Library) ↔ nhu cầu (Trends): rút keyword sản phẩm từ ad + Shopify rồi chạy Trends
+link:
+  top_n: 20             # số store điểm ad cao nhất được xét
+  only_scaling: false   # true: chỉ store có nhãn SCALE
+  min_ad_score: 50
+  max_keywords: 4       # keyword sản phẩm tối đa / store
+  autocomplete: false   # mở rộng bằng Autocomplete (thêm request)
+  overrides: {}         # đặt tay khi tool rút sai, vd: { postureglow.com: ["posture corrector", "posture brace"] }
+
 weights:
   velocity: 0.35     # độ dốc creative mới / tuần
   consistency: 0.15  # số tuần liên tục có creative mới

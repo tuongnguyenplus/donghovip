@@ -78,10 +78,12 @@ def _last_mean(s: Series, n: int = 52) -> float:
 
 def topic_keywords(conn: sqlite3.Connection, cfg: Config, topic: TrendTopic, today: date) -> list[str]:
     t = cfg.trends
+    base = list(dict.fromkeys([*(s.lower() for s in topic.seeds), *(k.lower() for k in topic.keywords)]))
+    if not t.autocomplete:  # không gọi mạng → không cần cache, luôn theo keyword hiện tại
+        return base[: t.max_keywords]
     cached, fetched = db.load_keyword_set(conn, topic.name)
     if cached and fetched and (today - fetched).days < 30:
         return cached
-    base = list(dict.fromkeys([*(s.lower() for s in topic.seeds), *(k.lower() for k in topic.keywords)]))
     if t.autocomplete:
         try:
             kws = expand_keywords(make_session(), base, max_keywords=t.max_keywords, alphabet=t.alphabet)

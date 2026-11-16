@@ -56,7 +56,7 @@ summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:4px}
 .nav{display:flex;gap:16px;margin:0 0 16px;font-size:13px} .nav a{text-decoration:none} .nav a.on{font-weight:700;text-decoration:underline}
 """
 
-NAV = [("index.html", "Store đang scale"), ("trends.html", "Trends")]
+NAV = [("winners.html", "Ứng viên"), ("index.html", "Store đang scale"), ("trends.html", "Trends")]
 
 
 def page(heading: str, body: str, active: str) -> str:

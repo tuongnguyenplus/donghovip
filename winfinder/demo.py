@@ -7,23 +7,31 @@ import zlib
 from datetime import date, timedelta
 from typing import Any
 
-# (domain, page_name, số creative mới mỗi tuần — cũ → mới, các nước, reach/ad)
-PATTERNS: list[tuple[str | None, str, list[int], list[str], int]] = [
-    ("postureglow.com", "PostureGlow", [0] * 7 + [1, 2, 3, 5, 8], ["IE", "NL", "DE"], 9000),
-    ("spinealign.co", "SpineAlign", [0] * 8 + [2, 2, 4, 6], ["IE", "DK"], 4000),
-    ("backbuddy.store", "BackBuddy", [3] * 12, ["IE", "NL", "DE", "FR"], 15000),
-    ("quickfixposture.shop", "QuickFix", [0, 0, 4, 3, 2, 0, 0, 0, 0, 0, 0, 0], ["IE"], 1200),
-    ("furrygroom.com", "FurryGroom", [0] * 6 + [1, 1, 2, 3, 4, 6], ["IE", "SE"], 6000),
-    ("petlint.io", "PetLint", [1, 0, 2, 1, 0, 1, 2, 0, 1, 1, 0, 1], ["NL"], 800),
-    (None, "Groomy Paws (no link)", [0] * 9 + [2, 3, 5], ["IE"], 2500),
+# (domain, page_name, số creative mới mỗi tuần — cũ → mới, các nước, reach/ad, search, tiêu đề ad, sản phẩm Shopify)
+PATTERNS: list[tuple] = [
+    ("postureglow.com", "PostureGlow", [0] * 7 + [1, 2, 3, 5, 8], ["IE", "NL", "DE"], 9000, "posture",
+     ["PostureGlow™ Smart Posture Corrector", "Posture Corrector — 50% OFF today", "The posture corrector doctors recommend"],
+     ["PostureGlow™ Smart Posture Corrector 2.0 - Adjustable", "Gift Card", "Shipping Protection"]),
+    ("spinealign.co", "SpineAlign", [0] * 8 + [2, 2, 4, 6], ["IE", "DK"], 4000, "posture",
+     ["Posture Corrector Pro for desk workers", "SpineAlign Posture Corrector"], []),
+    ("backbuddy.store", "BackBuddy", [3] * 12, ["IE", "NL", "DE", "FR"], 15000, "posture",
+     ["Adjustable Back Straightener", "Back Straightener — free shipping"], ["Back Straightener (Black)"]),
+    ("starrynight.shop", "StarryNight", [0, 0, 4, 3, 2, 0, 0, 0, 0, 0, 0, 0], ["IE"], 1200, "posture",
+     ["Galaxy Star Projector", "Star Projector for bedroom"], []),
+    ("furrygroom.com", "FurryGroom", [0] * 6 + [1, 1, 2, 3, 4, 6], ["IE", "SE"], 6000, "pet-grooming",
+     ["Cat Hair Remover — reusable", "Cat Hair Remover Roller", "The #1 cat hair remover"], ["Cat Hair Remover Roller"]),
+    ("petlint.io", "PetLint", [1, 0, 2, 1, 0, 1, 2, 0, 1, 1, 0, 1], ["NL"], 800, "pet-grooming",
+     ["Heated Dog Vest", "Heated dog vest for winter walks"], ["Heated Dog Vest - USB"]),
+    (None, "Groomy Paws", [0] * 9 + [2, 3, 5], ["IE"], 2500, "pet-grooming",
+     ["Self Cleaning Slicker Brush", "Slicker brush for long hair dogs"], []),
 ]
 
+SEARCH_KEYWORD = {"posture": "posture corrector", "pet-grooming": "cat hair remover"}
+
 BODIES = [
-    "Fix your posture in 10 minutes a day. Doctors hate how simple this is.",
     "Gift for mom who sits all day 💝 Free shipping today only.",
-    "I tried 7 posture correctors. This is the only one I still wear.",
-    "Desk job back pain? 30-day money back guarantee.",
-    "Remove pet hair from your couch in seconds — no batteries.",
+    "30-day money back guarantee. Thousands of happy customers.",
+    "Limited stock — order today and save 50%.",
 ]
 
 
@@ -32,8 +40,7 @@ def generate(as_of: date, seed: int = 7) -> list[tuple[str, str, dict[str, Any]]
     rng = random.Random(seed)
     out = []
     ad_id = 100000
-    for domain, page, weeks, countries, reach in PATTERNS:
-        search = "pet-grooming" if any(k in page.lower() for k in ("groom", "pet")) else "posture"
+    for domain, page, weeks, countries, reach, search, titles, _products in PATTERNS:
         page_id = str(zlib.crc32(page.encode()))
         n = len(weeks)
         for w, count in enumerate(weeks):
@@ -49,7 +56,7 @@ def generate(as_of: date, seed: int = 7) -> list[tuple[str, str, dict[str, Any]]
                     "ad_delivery_start_time": start.isoformat(),
                     "ad_delivery_stop_time": (start + timedelta(days=10)).isoformat() if stopped else None,
                     "ad_creative_bodies": [rng.choice(BODIES)],
-                    "ad_creative_link_titles": [f"{page} — Shop now"],
+                    "ad_creative_link_titles": [rng.choice(titles)],
                     "ad_creative_link_captions": [domain.upper()] if domain else [],
                     "ad_snapshot_url": f"https://www.facebook.com/ads/library/?id={ad_id}",
                     "publisher_platforms": ["facebook", "instagram"],
@@ -59,6 +66,10 @@ def generate(as_of: date, seed: int = 7) -> list[tuple[str, str, dict[str, Any]]
                 for c in countries:
                     out.append((search, c, raw))
     return out
+
+
+def shopify_products() -> dict[str, list[dict]]:
+    return {d: [{"title": t} for t in prods] for d, *_rest, prods in PATTERNS if d and prods}
 
 
 # ------------------------------------------------------------------ Trends giả lập
@@ -81,6 +92,8 @@ _PATTERN_BY_KEYWORD = {
     "cat hair remover": "breakout", "pet hair roller": "breakout", "lint remover for pets": "stable",
     "galaxy projector": "spike", "star projector": "spike",
     "fidget toy": "declining", "pop it fidget": "declining",
+    "smart posture corrector": "rising", "heated dog vest": "seasonal", "dog vest": "seasonal",
+    "cat hair remover roller": "breakout", "hair remover roller": "breakout",
 }
 _GEO_OVERRIDE = {("posture corrector", "DE"): "stable", ("posture brace", "DE"): "stable",
                  ("cat hair remover", "GB"): "stable", ("cat hair remover", "DE"): "stable"}
@@ -106,8 +119,8 @@ def _shape(kind: str, i: int, n: int, rng: random.Random, as_of: date) -> float:
         v = 6 + 90 * math.exp(-((i - peak) / 4) ** 2) + (8 if i > peak else 0)
     elif kind == "declining":
         v = 70 * (1 - t) ** 1.3 + 6
-    else:
-        v = 20
+    else:  # keyword không ai tìm → Trends trả toàn 0
+        return 0.0
     return max(0.0, round(v + noise, 1))
 
 
@@ -121,7 +134,7 @@ class DemoTrendsProvider:
     def interest_over_time(self, keywords, geo, timeframe):
         out = {}
         for k in keywords:
-            kind = _GEO_OVERRIDE.get((k, geo), _PATTERN_BY_KEYWORD.get(k, "stable"))
+            kind = _GEO_OVERRIDE.get((k, geo), _PATTERN_BY_KEYWORD.get(k, "none"))
             rng = random.Random(zlib.crc32(f"{k}|{geo}".encode()))
             scale = 1.0 if k in {t.seeds[0] for t in TREND_TOPICS} else 0.45
             out[k] = [

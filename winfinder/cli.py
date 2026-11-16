@@ -4,6 +4,7 @@
   winfinder collect  --config config.yaml   # chỉ lấy ad từ Ad Library
   winfinder analyze  --config config.yaml   # chấm điểm + xuất báo cáo từ DB hiện có
   winfinder trends   --config config.yaml   # Google Trends cho các chủ đề
+  winfinder link     --config config.yaml   # store → keyword sản phẩm → Trends → kết luận
   winfinder demo     --out demo_out         # chạy với dữ liệu giả lập, không cần token
 """
 
@@ -16,7 +17,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from winfinder import db, demo, pipeline, report, trends_pipeline, trends_report
+from winfinder import db, demo, link, link_report, pipeline, report, trends_pipeline, trends_report
 from winfinder.config import TrendTopic
 from winfinder.sources.trends import TrendsError
 from winfinder.analysis.scoring import analyze
@@ -94,8 +95,11 @@ def cmd_demo(args) -> int:
     for search, country, raw in demo.generate(today):
         db.upsert_ads(
             conn, [parse_ad(raw, cfg.exclude_domains)],
-            country=country, search=search, keyword="demo", observed_on=today,
+            country=country, search=search, keyword=demo.SEARCH_KEYWORD[search], observed_on=today,
         )
+    for domain, products in demo.shopify_products().items():
+        db.save_domain(conn, domain, registered_at=None, first_cert_at=None, is_shopify=True,
+                       product_count=len(products), products=products, checked_on=today)
     results = _report(conn, cfg, today)
     _print_top(results)
 
@@ -106,7 +110,45 @@ def cmd_demo(args) -> int:
     trends_report.write_trends(topics, out, today, "demo")
     print()
     _print_trends(topics)
-    print(f"\nBáo cáo demo: {out / 'index.html'} · {out / 'trends.html'}")
+
+    cfg.link.min_ad_score = 0
+    linked = link.link_stores(conn, cfg, results, demo.DemoTrendsProvider(today), today)
+    link_report.write(linked, out, today, "demo")
+    print()
+    _print_linked(linked)
+    print(f"\nBáo cáo demo: {out / 'winners.html'} · {out / 'index.html'} · {out / 'trends.html'}")
+    return 0
+
+
+def _print_linked(linked) -> None:
+    print(f"{'tổng':>5}  {'ad':>4}  {'trend':>5}  {'sản phẩm':24} store — kết luận")
+    for x in linked:
+        ts = f"{x.trend_score:.0f}" if x.trend_score is not None else "–"
+        print(f"{x.win_score:>5.0f}  {x.ad_score:>4.0f}  {ts:>5}  {(x.product or '–'):24} "
+              f"{x.domain or x.key} — {x.verdict_text.split(' — ')[0]}")
+
+
+def cmd_link(args) -> int:
+    cfg = load_config(args.config)
+    today = date.fromisoformat(args.as_of) if args.as_of else date.today()
+    if args.provider:
+        cfg.trends.provider = args.provider
+    if args.only_scaling:
+        cfg.link.only_scaling = True
+    try:
+        provider = trends_pipeline.make_provider(cfg)
+    except TrendsError as exc:
+        log.error("%s", exc)
+        return 2
+    conn = db.connect(cfg.database)
+    stores = analyze(conn, cfg, today)
+    if not stores:
+        log.error("DB chưa có ad nào — chạy 'winfinder collect' trước")
+        return 1
+    linked = link.link_stores(conn, cfg, stores, provider, today)
+    link_report.write(linked, cfg.report_dir, today, provider.name)
+    _print_linked(linked)
+    print(f"\nBáo cáo: {cfg.report_dir / 'winners.html'}")
     return 0
 
 
@@ -174,6 +216,10 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--provider", choices=["serpapi", "direct", "csv"])
     sp.add_argument("--force", action="store_true", help="bỏ qua cache")
     sp.set_defaults(fn=cmd_trends)
+    sp = sub.add_parser("link", help="nối store đang scale với Trends của sản phẩm"); common(sp)
+    sp.add_argument("--provider", choices=["serpapi", "direct", "csv"])
+    sp.add_argument("--only-scaling", action="store_true", help="chỉ store có nhãn SCALE")
+    sp.set_defaults(fn=cmd_link)
     sp = sub.add_parser("demo", help="chạy thử với dữ liệu giả lập"); common(sp)
     sp.add_argument("--out", default="demo_out"); sp.set_defaults(fn=cmd_demo)
 

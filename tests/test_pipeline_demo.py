@@ -27,9 +27,9 @@ def test_demo_ranking():
     assert by_key["postureglow.com"].scaling
     assert by_key["postureglow.com"].countries == ["DE", "IE", "NL"]
     assert not by_key["backbuddy.store"].scaling       # evergreen, không tăng
-    assert not by_key["quickfixposture.shop"].scaling  # test fail
+    assert not by_key["starrynight.shop"].scaling  # test fail
     assert results[0].scaling
-    assert results[-1].key == "quickfixposture.shop"
+    assert results[-1].key == "starrynight.shop"
 
 
 def test_filter_by_search():

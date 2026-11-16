@@ -63,6 +63,18 @@ jobs:
             winfinder trends --config config.yaml --provider direct
           fi
 
+      - name: Nối store ↔ Trends (ứng viên)
+        if: steps.tok.outputs.ok == 'true'
+        continue-on-error: true
+        env:
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+        run: |
+          if [ -n "$SERPAPI_API_KEY" ]; then
+            winfinder link --config config.yaml --provider serpapi
+          else
+            winfinder link --config config.yaml --provider direct
+          fi
+
       - name: Lưu lịch sử + báo cáo vào repo
         run: |
           git config user.name "winfinder-bot"

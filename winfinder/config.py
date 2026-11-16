@@ -39,6 +39,16 @@ class TrendsConfig:
 
 
 @dataclass
+class LinkConfig:
+    top_n: int = 20                 # số store (theo điểm ad) được nối với Trends
+    only_scaling: bool = False      # true: chỉ store có nhãn SCALE
+    min_ad_score: float = 50.0
+    max_keywords: int = 4           # keyword sản phẩm tối đa / store
+    autocomplete: bool = False      # mở rộng keyword sản phẩm bằng Autocomplete (tốn request)
+    overrides: dict[str, list[str]] = field(default_factory=dict)  # domain → keyword đặt tay
+
+
+@dataclass
 class Config:
     database: Path
     report_dir: Path
@@ -58,6 +68,7 @@ class Config:
     enrich_sleep_seconds: float
     weights: dict[str, float]
     trends: TrendsConfig = field(default_factory=TrendsConfig)
+    link: LinkConfig = field(default_factory=LinkConfig)
 
 
 DEFAULT_WEIGHTS = {"velocity": 0.35, "consistency": 0.15, "reach": 0.2, "newness": 0.15, "spread": 0.15}
@@ -93,6 +104,19 @@ def load_config(path: str | Path) -> Config:
         enrich_sleep_seconds=float(enrich.get("request_sleep_seconds", 1.0)),
         weights={**DEFAULT_WEIGHTS, **(raw.get("weights") or {})},
         trends=_load_trends(raw.get("trends") or {}, base, searches),
+        link=_load_link(raw.get("link") or {}),
+    )
+
+
+def _load_link(x: dict) -> LinkConfig:
+    return LinkConfig(
+        top_n=int(x.get("top_n", 20)),
+        only_scaling=bool(x.get("only_scaling", False)),
+        min_ad_score=float(x.get("min_ad_score", 50)),
+        max_keywords=int(x.get("max_keywords", 4)),
+        autocomplete=bool(x.get("autocomplete", False)),
+        overrides={str(k).lower(): [str(v) for v in (vs if isinstance(vs, list) else [vs])]
+                   for k, vs in (x.get("overrides") or {}).items()},
     )
 
 
