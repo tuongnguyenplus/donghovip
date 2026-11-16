@@ -211,3 +211,58 @@ def test_keys_saved_privately_and_never_echoed(client, workdir):
     body = client.req("/")[1]
     assert "sk-ant-secret-123" not in body and "✓ đã có" in body
     assert os.environ["ANTHROPIC_API_KEY"] == "sk-ant-secret-123"
+
+
+# ------------------------------------------------------------------ hồ sơ, đánh dấu, 3 góc nhìn
+def test_dynamic_views_profiles_and_labels(client, workdir):
+    import shutil
+    from datetime import date
+
+    from winfinder import db as wdb, demo, link, link_report, report
+    from winfinder.analysis.scoring import analyze
+    from winfinder.config import load_config
+    from winfinder.sources.adlibrary import parse_ad
+
+    as_of = date(2026, 11, 16)
+    cfg = load_config(workdir / "config.yaml")
+    cfg.link.min_ad_score, cfg.link.fetch_pages = 0, False
+    conn = wdb.connect(cfg.database)
+    for search, country, raw in demo.generate(as_of):
+        wdb.upsert_ads(conn, [parse_ad(raw, cfg.exclude_domains)], country=country, search=search,
+                       keyword="k", observed_on=as_of)
+    stores = analyze(conn, cfg, as_of)
+    report.write_json(stores, cfg.report_dir / "latest.json", as_of)
+    link_report.write(link.link_stores(conn, cfg, stores, demo.DemoTrendsProvider(as_of), as_of), cfg.report_dir,
+                      as_of, "demo")
+
+    s, body, _ = client.req("/products.html")
+    assert s == 200 and "posture corrector" in body and 'href="/profiles"' in body and 'name="label"' in body
+    assert client.req("/stores.html?sort=nope")[0] == 200           # hồ sơ không tồn tại → bỏ qua
+    assert client.req("/opportunities.html")[0] == 200
+
+    s, _, h = client.req("/label", {"kind": "store", "key": "postureglow.com", "label": "win"})
+    assert s == 303 and h["Location"] == "/stores.html#s-postureglow-com"
+    assert wdb.get_labels(wdb.connect(cfg.database))[("store", "postureglow.com")] == "win"
+    client.req("/label", {"kind": "store", "key": "postureglow.com", "label": "win"})   # bấm lại = bỏ nhãn
+    assert ("store", "postureglow.com") not in wdb.get_labels(wdb.connect(cfg.database))
+    assert "err=" in client.req("/label", {"kind": "x", "key": "a", "label": "win"})[2]["Location"]
+
+    s, body, _ = client.req("/profiles")
+    assert s == 200 and 'name="quick.strong"' in body
+    assert client.req("/calibration")[0] == 200
+
+    good_yaml = (workdir / "profiles.yaml").read_text()
+    _, _, h = client.req("/profiles/yaml", {"yaml": "profiles: [{key: 'bad key'}]"})
+    assert "err=" in h["Location"] and (workdir / "profiles.yaml").read_text() == good_yaml
+    _, _, h = client.req("/profiles/yaml", {"yaml": "profiles: [ {"})                  # lỗi cú pháp YAML
+    assert "err=" in h["Location"] and (workdir / "profiles.yaml").read_text() == good_yaml
+
+    from winfinder import profiles as wpf
+    profiles, ev = wpf.load(workdir / "profiles.yaml")
+    n = len(profiles)
+    _, _, h = client.req("/profiles", {"action": "dup:quick", **{f"{p.key}.w.{w.metric}": str(w.weight)
+                                                                for p in profiles for w in p.weights},
+                                       **{f"{p.key}.label": p.label for p in profiles}})
+    assert "msg=" in h["Location"] and len(wpf.load(workdir / "profiles.yaml")[0]) == n + 1
+    shutil.rmtree(cfg.report_dir)
+    assert "Chưa có dữ liệu" in client.req("/products.html")[1]

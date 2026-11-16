@@ -83,6 +83,10 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: winfinder angles --config config.yaml
 
+      - name: Chấm theo hồ sơ chiến lược (Sản phẩm / Store / Cơ hội angle)
+        continue-on-error: true
+        run: winfinder views --config config.yaml
+
       - name: Lưu lịch sử + báo cáo vào repo
         run: |
           git config user.name "winfinder-bot"

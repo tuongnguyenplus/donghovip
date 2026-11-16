@@ -12,6 +12,32 @@ Tìm **store / sản phẩm / angle đang vào phase scale**, tức là đang t�
 
 > **Giới hạn dữ liệu:** Ad Library API chỉ trả quảng cáo thương mại **phân phối ở EU**. Ad chỉ chạy ở US thì không lấy được qua API. Store US đã scale thường chạy cả IE, NL, DK, SE (nơi ad tiếng Anh phổ biến), nên tool dùng các nước này làm proxy.
 
+## Định nghĩa winning: hồ sơ chiến lược (`profiles.yaml`)
+
+Mỗi sản phẩm, store và angle được chấm theo **mọi hồ sơ cùng lúc**, nên tool cho biết nó hợp chiến lược nào. Có sẵn 2 hồ sơ mẫu, sửa được trên giao diện (`winfinder serve` → **Hồ sơ**), nhân bản hoặc tạo thêm:
+
+| | Đánh nhanh | Xây lâu dài |
+|---|---|---|
+| Điều kiện bắt buộc | Ad đang sống tăng ≥ 1.5×; xu hướng không giảm/không nhất thời | ≥ 2 ad sống ≥ 30 ngày; xu hướng không giảm/không nhất thời; không phải máy xay creative |
+| Trọng số cao | Đà tăng, điểm trends, store mới, ít đối thủ, angle đang lên | Sống sót 30 ngày, ad ≥ 60 ngày, ít phải thay creative, xu hướng tăng/năm, ít mùa vụ |
+
+Mỗi hồ sơ gồm 3 phần:
+- **Điều kiện bắt buộc** (nên giữ 2–4). Trượt một điều kiện thì kết luận là "Không đạt điều kiện".
+- **Trọng số**, kèm chiều "càng cao càng tốt" hoặc "càng thấp càng tốt".
+- **Ngưỡng** "Rất hợp" và "Hợp".
+
+Nguyên tắc chấm:
+- **Thiếu dữ liệu không phải là trượt.** Chỉ số thiếu dữ liệu bị bỏ ra và trọng số được chia lại. Điều kiện thiếu dữ liệu được đánh dấu "cần kiểm tra". Độ phủ dữ liệu luôn hiển thị.
+- **Luôn có giải thích.** Bấm "Vì sao?" để xem điều kiện nào đạt, trượt hay chưa rõ, và từng chỉ số đóng góp bao nhiêu điểm.
+- **Store bằng chứng** (`evidence`): mặc định là store đang scale, tăng sớm hoặc evergreen, **và** chạy thẳng store/PDP ≥ 50%. Store phải đạt rõ ràng mới được tính; thiếu dữ liệu thì không tính.
+
+**3 góc nhìn liên kết qua lại** (tính lại ngay khi sửa hồ sơ, không phải quét lại):
+- **Sản phẩm** (`products.html`): chỉ số tổng hợp từ **store bằng chứng**. Store không đạt vẫn được liệt kê, kèm lý do. Độ rộng của sản phẩm do bằng chứng quyết định, không chia theo loại hay giá.
+- **Store** (`stores.html`): từng store, bấm sang sản phẩm của store đó.
+- **Cơ hội angle** (`opportunities.html`): angle × sản phẩm, tức angle/persona đang được nhiều store dồn ad trong lúc nhu cầu đang tăng.
+
+**Đánh dấu thực tế & hiệu chỉnh.** Ở mỗi dòng có nút ✓ win / ✗ fail / ? chưa rõ. Trang **Hiệu chỉnh** so sánh chỉ số giữa nhóm win và nhóm fail để chỉ ra chỉ số nào thật sự phân biệt được hai nhóm (nên tăng trọng số) và hồ sơ nào đoán đúng nhiều nhất. Ngưỡng ban đầu chỉ là giả thuyết; dữ liệu thật mới là thước đo.
+
 ## Giao diện web: nhập ngách, bấm quét, xem báo cáo
 
 ```bash
@@ -173,6 +199,7 @@ winfinder run                       # collect → enrich → analyze → reports
 winfinder analyze --enrich          # chấm lại từ DB hiện có
 winfinder link                      # store → keyword sản phẩm → Trends → reports/winners.html
 winfinder angles                    # angle/persona của từng sản phẩm → reports/angles.html
+winfinder views                     # chấm theo hồ sơ → products.html, stores.html, opportunities.html
 ```
 
 ## Chạy tự động trên GitHub Actions
@@ -211,6 +238,9 @@ winfinder/
   report.py              xuất JSON + HTML
   demo.py                dữ liệu giả lập
   niches.py              danh sách ngách (niches.yaml)
+  profiles.py            hồ sơ chiến lược: danh mục chỉ số, điều kiện, trọng số, đánh giá có giải thích
+  profiles_ui.py         trình sửa hồ sơ + trang hiệu chỉnh
+  views.py               3 góc nhìn Sản phẩm ↔ Store ↔ Cơ hội angle
   runner.py              một lần quét đầy đủ, dùng chung cho web và dòng lệnh
   server.py              giao diện web `winfinder serve`
   cli.py

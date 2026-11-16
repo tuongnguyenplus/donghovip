@@ -24,7 +24,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
+from winfinder import db, profiles_ui, views
 from winfinder import niches as nm
+from winfinder import profiles as pf
 from winfinder.config import load_config
 from winfinder.report import BASE_CSS, NAV
 from winfinder.runner import STEP_LABELS, STEPS, ScanResult, only_niche, run_scan
@@ -176,7 +178,8 @@ details.edit summary{color:var(--accent);font-size:13px;margin:0}
 
 
 def _nav(active: str) -> str:
-    items = [("/", "⚙ Ngách & quét")] + [("/" + h, label) for h, label in NAV]
+    items = [("/", "⚙ Ngách & quét"), ("/profiles", "Hồ sơ"), ("/calibration", "Hiệu chỉnh")] + [
+        ("/" + h, label) for h, label in NAV]
     return "".join(f'<a href="{h}" class="{"on" if h == active else ""}">{_e(t)}</a>' for h, t in items)
 
 
@@ -295,6 +298,17 @@ if (show(initial)) setTimeout(poll, 2000);
     )
 
 
+DYNAMIC = {"/products.html": views.render_products, "/stores.html": views.render_stores,
+           "/opportunities.html": views.render_angles}
+
+
+def _with_app_nav(html_text: str) -> str:
+    """Thêm trang quản lý (ngách, hồ sơ, hiệu chỉnh) vào thanh điều hướng của các trang báo cáo."""
+    extra = ('<a href="/">⚙ Ngách &amp; quét</a><a href="/profiles">Hồ sơ</a>'
+             '<a href="/calibration">Hiệu chỉnh</a>')
+    return html_text.replace('<nav class="nav">', f'<nav class="nav">{extra}', 1)
+
+
 # ------------------------------------------------------------------ HTTP
 class App:
     def __init__(self, config_path: Path, runner=run_scan):
@@ -312,6 +326,11 @@ class App:
 
     def niches_path(self) -> Path:
         return self.cfg.niches_file
+
+    def model(self):
+        cfg = self.cfg
+        labels = db.get_labels(db.connect(cfg.database))
+        return views.build(cfg.report_dir, cfg.profiles_file, labels)
 
     def reports(self) -> list[str]:
         d = self.cfg.report_dir
@@ -350,6 +369,40 @@ def make_handler(app: App, allowed_hosts: set[str]):
             self.send_header("Location", "/" + (f"?{q}" if q else ""))
             self.end_headers()
 
+        def _go(self, location: str):
+            self.send_response(HTTPStatus.SEE_OTHER)
+            self.send_header("Location", location)
+            self.end_headers()
+
+        def _save_profiles(self, form, action: str):
+            target = app.cfg.profiles_file
+            try:
+                current, _ = pf.load(target)
+                profiles, evidence = profiles_ui.parse_form(form, current)
+                msg = "Đã lưu hồ sơ"
+                if action == "new":
+                    key = profiles_ui.new_key(profiles, "custom")
+                    profiles.append(pf.Profile(key, "Hồ sơ mới", "", [], [pf.Weight("active_growth", 1)]))
+                    msg = "Đã thêm hồ sơ mới — kéo xuống cuối trang để chỉnh"
+                elif action.startswith("dup:"):
+                    src = next((p for p in profiles if p.key == action[4:]), None)
+                    if src:
+                        import copy
+
+                        dup = copy.deepcopy(src)
+                        dup.key, dup.label = profiles_ui.new_key(profiles, src.key), src.label + " (bản sao)"
+                        profiles.append(dup)
+                        msg = f"Đã nhân bản “{src.label}”"
+                elif action.startswith("del:"):
+                    if len(profiles) <= 1:
+                        raise pf.ProfileError("Cần giữ ít nhất 1 hồ sơ")
+                    profiles = [p for p in profiles if p.key != action[4:]]
+                    msg = "Đã xoá hồ sơ"
+                pf.save(target, profiles, evidence)
+                self._go("/profiles?msg=" + quote(msg))
+            except pf.ProfileError as exc:
+                self._go("/profiles?err=" + quote(str(exc)))
+
         def _form(self) -> dict[str, list[str]] | None:
             length = int(self.headers.get("Content-Length") or 0)
             if length > 100_000:
@@ -376,14 +429,35 @@ def make_handler(app: App, allowed_hosts: set[str]):
                 self._send(HTTPStatus.OK, json.dumps(app.job.status(), ensure_ascii=False),
                            "application/json; charset=utf-8")
                 return
+            q = parse_qs(url.query)
+            sort = (q.get("sort") or [""])[0] or None
+            if url.path in DYNAMIC:
+                model = app.model()
+                if sort and not any(p.key == sort for p in model.profiles):
+                    sort = None
+                self._send(HTTPStatus.OK, _with_app_nav(DYNAMIC[url.path](model, app.token, sort)))
+                return
+            if url.path == "/profiles":
+                try:
+                    profiles, evidence = pf.load(app.cfg.profiles_file)
+                    pv = profiles_ui.preview(app.model())
+                except pf.ProfileError as exc:
+                    profiles, evidence, pv = [], pf.EvidenceRule(), {}
+                    q.setdefault("err", [f"profiles.yaml lỗi: {exc} — sửa ở ô YAML bên dưới"])
+                text = app.cfg.profiles_file.read_text(encoding="utf-8") if app.cfg.profiles_file.exists() else ""
+                self._send(HTTPStatus.OK, _with_app_nav(profiles_ui.render_editor(
+                    profiles, evidence, app.token, text, (q.get("msg") or [""])[0], (q.get("err") or [""])[0], pv)))
+                return
+            if url.path == "/calibration":
+                self._send(HTTPStatus.OK, _with_app_nav(profiles_ui.render_calibration(views.label_stats(app.model()))))
+                return
             m = REPORT_RE.match(url.path)
             if m:
                 f = app.cfg.report_dir / m.group(1)
                 if f.is_file():
                     data = f.read_text(encoding="utf-8")
                     if f.suffix == ".html":  # thêm link về trang quản lý vào thanh điều hướng
-                        data = data.replace('<nav class="nav">', '<nav class="nav"><a href="/">⚙ Ngách &amp; quét</a>', 1)
-                        self._send(HTTPStatus.OK, data)
+                        self._send(HTTPStatus.OK, _with_app_nav(data))
                     else:
                         self._send(HTTPStatus.OK, data, "application/json; charset=utf-8")
                     return
@@ -431,6 +505,28 @@ def make_handler(app: App, allowed_hosts: set[str]):
                         self._redirect(msg="Đã bắt đầu quét — theo dõi log bên dưới")
                     else:
                         self._redirect(err="Đang có một lần quét chạy, đợi xong rồi bấm lại")
+                elif path == "/label":
+                    kind, key, label = one("kind"), one("key"), one("label")
+                    if kind not in ("product", "store", "angle") or not key or label not in ("win", "fail", "unsure"):
+                        raise nm.NicheError("Nhãn không hợp lệ")
+                    conn = db.connect(app.cfg.database)
+                    current = db.get_labels(conn).get((kind, key))
+                    db.set_label(conn, kind, key, None if current == label else label)  # bấm lại = bỏ nhãn
+                    page_name = {"product": "products.html", "store": "stores.html", "angle": "opportunities.html"}[kind]
+                    anchor = {"product": "p-", "store": "s-", "angle": "a-"}[kind] + views.slug(key)
+                    self._go(f"/{page_name}#{anchor}")
+                elif path == "/profiles":
+                    self._save_profiles(form, one("action"))
+                elif path == "/profiles/yaml":
+                    target = app.cfg.profiles_file
+                    text = pf.DEFAULT_YAML if one("reset") == "1" else (form.get("yaml") or [""])[0]
+                    try:
+                        pf.save_text(target, text.replace("\r\n", "\n"))
+                        self._go("/profiles?msg=" + quote("Đã lưu YAML"))
+                    except (pf.ProfileError, ValueError, KeyError, TypeError) as exc:
+                        self._go("/profiles?err=" + quote(f"YAML không hợp lệ: {exc}"))
+                    except Exception as exc:  # lỗi cú pháp YAML
+                        self._go("/profiles?err=" + quote(f"YAML không hợp lệ: {exc}"))
                 elif path == "/keys":
                     updates = {k: one(k).strip() for k in KEYS if one(k).strip()}
                     if updates:

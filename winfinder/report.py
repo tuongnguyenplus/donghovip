@@ -54,10 +54,11 @@ a{color:var(--accent)} .store{font-weight:600}
 .chip{display:inline-block;background:var(--chip);border-radius:4px;padding:1px 6px;margin:2px 4px 2px 0;font-size:11px}
 details ul{padding-left:18px;margin:6px 0} details li{margin-bottom:6px} .body{color:var(--muted);font-size:12px}
 summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:4px}
-.nav{display:flex;gap:16px;margin:0 0 16px;font-size:13px} .nav a{text-decoration:none} .nav a.on{font-weight:700;text-decoration:underline}
+.nav{display:flex;flex-wrap:wrap;gap:6px 16px;margin:0 0 16px;font-size:13px} .nav a{text-decoration:none} .nav a.on{font-weight:700;text-decoration:underline}
 """
 
-NAV = [("winners.html", "Ứng viên"), ("angles.html", "Angle"), ("index.html", "Store đang scale"), ("trends.html", "Trends")]
+NAV = [("products.html", "Sản phẩm"), ("stores.html", "Store"), ("opportunities.html", "Cơ hội angle"),
+       ("winners.html", "Ứng viên"), ("angles.html", "Angle"), ("index.html", "Đo ad"), ("trends.html", "Trends")]
 
 
 def page(heading: str, body: str, active: str) -> str:

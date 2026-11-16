@@ -95,6 +95,7 @@ class Config:
     enrich_sleep_seconds: float
     weights: dict[str, float]
     niches_file: Path = Path("niches.yaml")
+    profiles_file: Path = Path("profiles.yaml")
     trends: TrendsConfig = field(default_factory=TrendsConfig)
     durability: DurabilityRules = field(default_factory=DurabilityRules)
     link: LinkConfig = field(default_factory=LinkConfig)
@@ -131,6 +132,7 @@ def load_config(path: str | Path) -> Config:
         request_sleep_seconds=float(al.get("request_sleep_seconds", 1.0)),
         searches=searches,
         niches_file=niches_file,
+        profiles_file=base / raw.get("profiles_file", "profiles.yaml"),
         exclude_domains={d.lower() for d in raw.get("exclude_domains", [])},
         new_store_days=int(raw.get("new_store_days", 90)),
         enrich_top_n=int(enrich.get("top_n", 30)),

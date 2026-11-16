@@ -21,7 +21,7 @@ from datetime import date
 from pathlib import Path
 
 from winfinder import (angles_pipeline, angles_report, db, demo, link, link_report, pipeline, report,
-                       trends_pipeline, trends_report)
+                       trends_pipeline, trends_report, views)
 from winfinder.analysis.angles import make_angle_analyzer
 from winfinder.expand import expand_stores
 from winfinder.analysis.product_llm import make_extractor
@@ -144,7 +144,14 @@ def cmd_demo(args) -> int:
     angles_report.write(products, out, today, "dữ liệu giả lập")
     print()
     _print_angles(products)
-    print(f"\nBáo cáo demo: {out / 'winners.html'} · {out / 'angles.html'} · {out / 'index.html'} · {out / 'trends.html'}")
+
+    cfg.profiles_file = out / "profiles.yaml"
+    model = views.build(out, cfg.profiles_file)
+    views.write_static(model, out)
+    print()
+    _print_views(model)
+    print(f"\nBáo cáo demo: {out / 'products.html'} (bắt đầu từ đây) · {out / 'stores.html'} · "
+          f"{out / 'opportunities.html'}")
     return 0
 
 
@@ -164,6 +171,24 @@ def _print_angles(products) -> None:
             print(f"   {a.status_vi:14} {a.recent_share * 100:>4.0f}%  {a.angle.name} — {a.angle.persona}")
         for u in p.untapped:
             print(f"   {'chưa khai thác':14}        {u.get('name')} — {u.get('persona')}")
+
+
+def _print_views(model) -> None:
+    names = [p.label for p in model.profiles]
+    print(f"{'sản phẩm':30} " + "  ".join(f"{n:>24}" for n in names) + "  bằng chứng")
+    for p in model.products:
+        cells = "  ".join(f"{e.score:>4.0f} {e.decision_vi[:19]:19}" for e in p.evals)
+        print(f"{p.name[:30]:30} {cells}  {p.metrics['evidence_stores']}/{p.metrics['stores']}")
+
+
+def cmd_views(args) -> int:
+    cfg = load_config(args.config)
+    labels = db.get_labels(db.connect(cfg.database))
+    model = views.build(cfg.report_dir, cfg.profiles_file, labels)
+    views.write_static(model, cfg.report_dir)
+    _print_views(model)
+    print(f"\nBáo cáo: {cfg.report_dir / 'products.html'}")
+    return 0
 
 
 def cmd_angles(args) -> int:
@@ -303,6 +328,8 @@ def main(argv: list[str] | None = None) -> int:
     sp.set_defaults(fn=cmd_link)
     sp = sub.add_parser("angles", help="chia angle/persona cho sản phẩm trên trang Ứng viên (Claude)"); common(sp)
     sp.set_defaults(fn=cmd_angles)
+    sp = sub.add_parser("views", help="chấm theo hồ sơ chiến lược → products/stores/opportunities.html"); common(sp)
+    sp.set_defaults(fn=cmd_views)
     sp = sub.add_parser("serve", help="mở giao diện web: quản lý ngách, quét, xem báo cáo"); common(sp)
     sp.add_argument("--host", default="127.0.0.1")
     sp.add_argument("--port", type=int, default=8765)
@@ -310,7 +337,7 @@ def main(argv: list[str] | None = None) -> int:
     sp.set_defaults(fn=cmd_serve)
     sp = sub.add_parser("scan", help="quét đầy đủ (Ad Library → Trends → Ứng viên → Angle)"); common(sp)
     sp.add_argument("--niche", help="chỉ quét một ngách")
-    sp.add_argument("--steps", nargs="+", choices=["collect", "trends", "link", "angles"])
+    sp.add_argument("--steps", nargs="+", choices=["collect", "trends", "link", "angles", "views"])
     sp.set_defaults(fn=cmd_scan)
     sp = sub.add_parser("demo", help="chạy thử với dữ liệu giả lập"); common(sp)
     sp.add_argument("--out", default="demo_out"); sp.set_defaults(fn=cmd_demo)

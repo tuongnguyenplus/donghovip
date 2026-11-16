@@ -39,6 +39,8 @@ MARKETING = {
     "fix", "only", "unisex", "women", "men", "womens", "mens", "kids", "adults", "adult", "stop", "need",
     "want", "finally", "works", "work", "make", "makes", "made", "use", "using", "used", "like", "look",
     "say", "goodbye", "wake", "feel", "see", "results", "result", "clinically", "proven", "comfortable",
+    "happy", "customers", "customer", "thousands", "satisfied", "reviews", "review", "rated",
+    "left", "hurry", "sold-out", "selling", "fast",
 }
 _TOKEN = re.compile(r"[a-z][a-z'\-]*[a-z]|[a-z]")
 

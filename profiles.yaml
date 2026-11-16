@@ -1,0 +1,52 @@
+# Hồ sơ chiến lược — sửa trên giao diện (winfinder serve → Hồ sơ) hoặc sửa tay.
+# gates: điều kiện bắt buộc. op: >=, <=, in, not_in, is. Thiếu dữ liệu → "chưa rõ" (không tính là trượt).
+# weights: prefer high = càng cao càng tốt, low = càng thấp càng tốt. Trọng số tương đối, không cần cộng = 1.
+
+# Store được tính là bằng chứng cho sản phẩm khi đạt các điều kiện này
+evidence:
+  gates:
+    - {metric: archetype, op: in, value: [scaling, early, evergreen]}
+    - {metric: direct_share, op: ">=", value: 0.5}
+
+profiles:
+  - key: quick
+    label: Đánh nhanh
+    description: Bắt trend đang lên — vào sớm, chấp nhận sản phẩm chưa chứng minh độ bền lâu dài.
+    strong: 70
+    fit: 50
+    gates:
+      - {metric: active_growth, op: ">=", value: 1.5}
+      - {metric: trend_label, op: not_in, value: [declining, spike]}
+    weights:
+      - {metric: active_growth, weight: 3}
+      - {metric: trend_score, weight: 2}
+      - {metric: need_score, weight: 1}
+      - {metric: store_age_days, weight: 1.5, prefer: low}
+      - {metric: competitors, weight: 1, prefer: low}
+      - {metric: angles_rising, weight: 1}
+      - {metric: dup_share, weight: 1}
+      - {metric: direct_share, weight: 1}
+      - {metric: brand_ratio, weight: 1}
+      - {metric: angle_share, weight: 1}
+
+  - key: long
+    label: Xây lâu dài
+    description: Sản phẩm đã chứng minh có lãi và dễ scale — ad bền, nhu cầu tăng bền vững, không mùa vụ.
+    strong: 70
+    fit: 50
+    gates:
+      - {metric: alive_30, op: ">=", value: 2}
+      - {metric: trend_label, op: not_in, value: [declining, spike]}
+      - {metric: archetype, op: not_in, value: [treadmill, stopped]}
+    weights:
+      - {metric: survival_30, weight: 3}
+      - {metric: alive_60, weight: 2}
+      - {metric: turnover, weight: 2, prefer: low}
+      - {metric: trend_growth, weight: 2}
+      - {metric: need_score, weight: 1}
+      - {metric: direct_share, weight: 1.5}
+      - {metric: evidence_stores, weight: 1.5}
+      - {metric: angles_total, weight: 1}
+      - {metric: seasonal_amplitude, weight: 1, prefer: low}
+      - {metric: traffic_confirmed, weight: 1}
+      - {metric: angle_stores, weight: 1}

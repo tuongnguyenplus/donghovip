@@ -115,6 +115,16 @@ CREATE TABLE IF NOT EXISTS swept_pages (
     swept_on TEXT NOT NULL
 );
 
+-- đánh dấu thực tế: sản phẩm / store / angle đã win hay fail → hiệu chỉnh hồ sơ
+CREATE TABLE IF NOT EXISTS labels (
+    kind       TEXT NOT NULL,      -- product | store | angle
+    key        TEXT NOT NULL,
+    label      TEXT NOT NULL,      -- win | fail | unsure
+    note       TEXT,
+    updated_on TEXT NOT NULL,
+    PRIMARY KEY (kind, key)
+);
+
 CREATE TABLE IF NOT EXISTS domains (
     domain         TEXT PRIMARY KEY,
     registered_at  TEXT,
@@ -290,3 +300,17 @@ def apply_domain_links(conn: sqlite3.Connection) -> int:
         n += cur.rowcount
     conn.commit()
     return n
+
+
+def set_label(conn: sqlite3.Connection, kind: str, key: str, label: str | None, note: str = "",
+              today: date | None = None) -> None:
+    if label is None:
+        conn.execute("DELETE FROM labels WHERE kind = ? AND key = ?", (kind, key))
+    else:
+        conn.execute("INSERT OR REPLACE INTO labels VALUES (?,?,?,?,?)",
+                     (kind, key, label, note, (today or date.today()).isoformat()))
+    conn.commit()
+
+
+def get_labels(conn: sqlite3.Connection) -> dict[tuple[str, str], str]:
+    return {(r["kind"], r["key"]): r["label"] for r in conn.execute("SELECT kind, key, label FROM labels")}

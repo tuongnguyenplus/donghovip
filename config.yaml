@@ -15,6 +15,8 @@ ad_library:
 
 # Danh sách ngách nằm ở niches.yaml — sửa trên giao diện web (`winfinder serve`) hoặc sửa tay.
 niches_file: niches.yaml
+# Hồ sơ chiến lược (định nghĩa winning) — sửa trên giao diện (Hồ sơ) hoặc sửa tay
+profiles_file: profiles.yaml
 
 # Domain không phải store (marketplace, mạng xã hội, link rút gọn...) → bỏ qua
 exclude_domains:

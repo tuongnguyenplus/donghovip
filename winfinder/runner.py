@@ -12,7 +12,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 
 from winfinder import angles_pipeline, angles_report, db, link, link_report, pipeline, report
-from winfinder import trends_pipeline, trends_report
+from winfinder import trends_pipeline, trends_report, views
 from winfinder.analysis.angles import make_angle_analyzer
 from winfinder.analysis.product_llm import make_extractor
 from winfinder.analysis.scoring import analyze
@@ -25,12 +25,13 @@ from winfinder.sources.trends import TrendsError
 
 log = logging.getLogger("winfinder.scan")
 
-STEPS = ["collect", "trends", "link", "angles"]
+STEPS = ["collect", "trends", "link", "angles", "views"]
 STEP_LABELS = {
     "collect": "Lấy ad từ Ad Library + chấm điểm store",
     "trends": "Google Trends cho các ngách",
     "link": "Ứng viên: hiểu sản phẩm, nhu cầu, traffic",
     "angles": "Angle / persona",
+    "views": "Chấm theo hồ sơ chiến lược (Sản phẩm / Store / Cơ hội angle)",
 }
 
 
@@ -151,8 +152,16 @@ def run_scan(cfg: Config, steps: list[str] | None = None, today: date | None = N
                             "" if analyzer else "chưa có ANTHROPIC_API_KEY — chỉ hiện kết quả đã lưu")
         return None if analyzer else "chưa có ANTHROPIC_API_KEY"
 
+    def views_step():
+        model = views.build(cfg.report_dir, cfg.profiles_file, db.get_labels(conn))
+        views.write_static(model, cfg.report_dir)
+        log.info("%d sản phẩm, %d store, %d angle đã chấm theo %d hồ sơ",
+                 len(model.products), len(model.stores), len(model.angles), len(model.profiles))
+        return None if model.stores else "chưa có dữ liệu store"
+
     step("collect", collect)
     step("trends", trends)
     step("link", link_step)
     step("angles", angles)
+    step("views", views_step)
     return res
