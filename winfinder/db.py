@@ -55,6 +55,25 @@ CREATE TABLE IF NOT EXISTS reach_snapshots (
     PRIMARY KEY (ad_id, observed_on)
 );
 
+-- chuỗi Google Trends theo tuần (đã quy về thang chung của bộ keyword trong chủ đề)
+CREATE TABLE IF NOT EXISTS trend_series (
+    topic      TEXT NOT NULL,
+    geo        TEXT NOT NULL,
+    timeframe  TEXT NOT NULL,
+    keyword    TEXT NOT NULL,
+    week       TEXT NOT NULL,
+    value      REAL NOT NULL,
+    fetched_on TEXT NOT NULL,
+    PRIMARY KEY (topic, geo, timeframe, keyword, week)
+);
+
+-- bộ keyword đã mở rộng cho mỗi chủ đề
+CREATE TABLE IF NOT EXISTS keyword_sets (
+    topic      TEXT PRIMARY KEY,
+    keywords   TEXT NOT NULL,
+    fetched_on TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS domains (
     domain         TEXT PRIMARY KEY,
     registered_at  TEXT,
@@ -142,3 +161,49 @@ def save_domain(
         ),
     )
     conn.commit()
+
+
+def save_trend_series(
+    conn: sqlite3.Connection, topic: str, geo: str, timeframe: str,
+    series: dict[str, list[tuple[date, float]]], fetched_on: date,
+) -> None:
+    conn.execute("DELETE FROM trend_series WHERE topic=? AND geo=? AND timeframe=?", (topic, geo, timeframe))
+    conn.executemany(
+        "INSERT INTO trend_series VALUES (?,?,?,?,?,?,?)",
+        [
+            (topic, geo, timeframe, kw, d.isoformat(), float(v), fetched_on.isoformat())
+            for kw, pts in series.items()
+            for d, v in pts
+        ],
+    )
+    conn.commit()
+
+
+def load_trend_series(
+    conn: sqlite3.Connection, topic: str, geo: str, timeframe: str
+) -> tuple[dict[str, list[tuple[date, float]]], date | None]:
+    out: dict[str, list[tuple[date, float]]] = {}
+    fetched: date | None = None
+    for r in conn.execute(
+        "SELECT keyword, week, value, fetched_on FROM trend_series WHERE topic=? AND geo=? AND timeframe=? "
+        "ORDER BY keyword, week",
+        (topic, geo, timeframe),
+    ):
+        out.setdefault(r["keyword"], []).append((date.fromisoformat(r["week"]), r["value"]))
+        fetched = date.fromisoformat(r["fetched_on"])
+    return out, fetched
+
+
+def save_keyword_set(conn: sqlite3.Connection, topic: str, keywords: list[str], fetched_on: date) -> None:
+    conn.execute(
+        "INSERT OR REPLACE INTO keyword_sets VALUES (?,?,?)",
+        (topic, json.dumps(keywords, ensure_ascii=False), fetched_on.isoformat()),
+    )
+    conn.commit()
+
+
+def load_keyword_set(conn: sqlite3.Connection, topic: str) -> tuple[list[str] | None, date | None]:
+    r = conn.execute("SELECT keywords, fetched_on FROM keyword_sets WHERE topic=?", (topic,)).fetchone()
+    if not r:
+        return None, None
+    return json.loads(r["keywords"]), date.fromisoformat(r["fetched_on"])

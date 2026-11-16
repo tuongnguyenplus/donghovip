@@ -27,7 +27,26 @@ def make_session() -> requests.Session:
     return s
 
 
+def get_text(
+    session: requests.Session,
+    url: str,
+    params: dict[str, Any] | None = None,
+    **kw: Any,
+) -> str:
+    """Như get_json nhưng trả về text thô (cho endpoint có tiền tố chống JSON-hijacking)."""
+    return _get(session, url, params, **kw).text
+
+
 def get_json(
+    session: requests.Session,
+    url: str,
+    params: dict[str, Any] | None = None,
+    **kw: Any,
+) -> Any:
+    return _get(session, url, params, **kw).json()
+
+
+def _get(
     session: requests.Session,
     url: str,
     params: dict[str, Any] | None = None,
@@ -35,8 +54,8 @@ def get_json(
     retries: int = 4,
     backoff: float = 2.0,
     timeout: float = 30.0,
-) -> Any:
-    """GET và parse JSON; retry khi lỗi mạng hoặc status 429/5xx."""
+) -> requests.Response:
+    """GET; retry khi lỗi mạng hoặc status 429/5xx."""
     last_exc: Exception | None = None
     for attempt in range(retries + 1):
         try:
@@ -45,7 +64,7 @@ def get_json(
             last_exc = exc
         else:
             if resp.status_code < 400:
-                return resp.json()
+                return resp
             if resp.status_code not in RETRY_STATUS:
                 raise HttpError(resp.status_code, resp.text)
             last_exc = HttpError(resp.status_code, resp.text)

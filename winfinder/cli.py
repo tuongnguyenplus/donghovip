@@ -3,6 +3,7 @@
   winfinder run      --config config.yaml   # collect → analyze → enrich → analyze → report
   winfinder collect  --config config.yaml   # chỉ lấy ad từ Ad Library
   winfinder analyze  --config config.yaml   # chấm điểm + xuất báo cáo từ DB hiện có
+  winfinder trends   --config config.yaml   # Google Trends cho các chủ đề
   winfinder demo     --out demo_out         # chạy với dữ liệu giả lập, không cần token
 """
 
@@ -15,7 +16,9 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from winfinder import db, demo, pipeline, report
+from winfinder import db, demo, pipeline, report, trends_pipeline, trends_report
+from winfinder.config import TrendTopic
+from winfinder.sources.trends import TrendsError
 from winfinder.analysis.scoring import analyze
 from winfinder.config import load_config
 from winfinder.sources.adlibrary import AdLibraryClient, AdLibraryError, parse_ad
@@ -95,8 +98,58 @@ def cmd_demo(args) -> int:
         )
     results = _report(conn, cfg, today)
     _print_top(results)
-    print(f"\nBáo cáo demo: {out / 'index.html'}")
+
+    cfg.trends.autocomplete = False
+    cfg.trends.geos = ["US", "GB", "DE"]
+    cfg.trends.topics = demo.TREND_TOPICS
+    topics = trends_pipeline.run_trends(conn, cfg, demo.DemoTrendsProvider(today), today)
+    trends_report.write_trends(topics, out, today, "demo")
+    print()
+    _print_trends(topics)
+    print(f"\nBáo cáo demo: {out / 'index.html'} · {out / 'trends.html'}")
     return 0
+
+
+def _print_trends(topics) -> None:
+    print(f"{'điểm':>5}  {'phân loại':24} {'YoY':>6} {'xu hướng':>8}  chủ đề — lan rộng")
+    for t in topics:
+        h = t.home
+        if not h:
+            print(f"{'–':>5}  {'không có dữ liệu':24} {'':>6} {'':>8}  {t.name}")
+            continue
+        s = h.stats
+        pct = lambda x: "–" if x is None else f"{x * 100:+.0f}%"  # noqa: E731
+        print(f"{h.score:>5.0f}  {s['label_vi']:24} {pct(s['yoy']):>6} {pct(s['trend_growth']):>8}  "
+              f"{t.name} — {t.spread.get('stage', '')}")
+
+
+def cmd_trends(args) -> int:
+    cfg = load_config(args.config)
+    today = date.fromisoformat(args.as_of) if args.as_of else date.today()
+    if args.provider:
+        cfg.trends.provider = args.provider
+    if args.geos:
+        cfg.trends.geos = [g.strip().upper() for g in args.geos.split(",") if g.strip()]
+    topics = cfg.trends.topics
+    if args.keyword:
+        kws = [k.strip() for k in args.keyword.split(",") if k.strip()]
+        topics = [TrendTopic(name=kws[0], seeds=kws[:1], keywords=kws[1:])]
+    elif args.topic:
+        topics = [t for t in topics if t.name == args.topic]
+        if not topics:
+            log.error("Không có chủ đề '%s' trong config", args.topic)
+            return 2
+    try:
+        provider = trends_pipeline.make_provider(cfg)
+    except TrendsError as exc:
+        log.error("%s", exc)
+        return 2
+    conn = db.connect(cfg.database)
+    results = trends_pipeline.run_trends(conn, cfg, provider, today, topics=topics, force=args.force)
+    trends_report.write_trends(results, cfg.report_dir, today, provider.name)
+    _print_trends(results)
+    print(f"\nBáo cáo: {cfg.report_dir / 'trends.html'}")
+    return 0 if any(t.geos for t in results) else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -114,6 +167,13 @@ def main(argv: list[str] | None = None) -> int:
     sp.set_defaults(fn=cmd_analyze)
     sp = sub.add_parser("run", help="collect + enrich + analyze"); common(sp)
     sp.add_argument("--no-enrich", action="store_true"); sp.set_defaults(fn=cmd_run)
+    sp = sub.add_parser("trends", help="phân tích Google Trends cho các chủ đề"); common(sp)
+    sp.add_argument("--topic", help="chỉ chạy một chủ đề trong config")
+    sp.add_argument("--keyword", help="chủ đề nhanh: 'keyword chính, keyword phụ, ...'")
+    sp.add_argument("--geos", help="ghi đè thị trường, vd US,GB,DE (nước đầu tiên là thị trường gốc)")
+    sp.add_argument("--provider", choices=["serpapi", "direct", "csv"])
+    sp.add_argument("--force", action="store_true", help="bỏ qua cache")
+    sp.set_defaults(fn=cmd_trends)
     sp = sub.add_parser("demo", help="chạy thử với dữ liệu giả lập"); common(sp)
     sp.add_argument("--out", default="demo_out"); sp.set_defaults(fn=cmd_demo)
 

@@ -6,8 +6,8 @@ Tìm **store / sản phẩm / angle đang vào phase scale**, tức là đang t�
 |---|-----|----------|-------|-----------|
 | 1 | **Ad growth** | Creative mới/tuần tăng đều 3–6 tuần, store/domain < 90 ngày | Meta Ad Library API, RDAP, crt.sh, Shopify `products.json` | ✅ v0.1 |
 | 2 | **Traffic** | Traffic tăng song song với ad | CrUX popularity rank (BigQuery), EU reach, branded search | ⏳ |
-| 3 | **Trends** | Keyword set → xu hướng 5 năm, tách xu hướng thật khỏi mùa vụ | Google Trends, Autocomplete | ⏳ |
-| 4 | **Thị trường** | Đã lan sang các nước EU nào | Ad Library theo từng nước | ✅ cơ bản (cột "Thị trường") |
+| 3 | **Trends** | Keyword set → xu hướng 5 năm, tách xu hướng thật khỏi mùa vụ | Google Trends, Autocomplete | ✅ v0.2 |
+| 4 | **Thị trường** | Đã lan sang các nước EU nào | Ad Library + Trends theo từng nước | ✅ cơ bản |
 | + | **Angle / persona** | Gom ad theo angle, đo tăng trưởng theo angle | Text ad + LLM | ⏳ |
 
 > **Giới hạn dữ liệu:** Ad Library API chỉ trả quảng cáo thương mại **phân phối ở EU**. Ad chỉ chạy ở US thì không lấy được qua API. Store US đã scale thường chạy cả IE, NL, DK, SE (nơi ad tiếng Anh phổ biến), nên tool dùng các nước này làm proxy.
@@ -24,12 +24,47 @@ Ad được gom theo **domain** (lấy từ link caption), nếu không có doma
 
 Nhãn **SCALE** được gắn khi thỏa đủ: tổng số ad ≥ `min_total_ads`, số tuần có ad ≥ `min_active_weeks`, nửa sau cửa sổ / nửa đầu ≥ `min_growth_ratio`, độ dốc > 0 và 2 tuần gần nhất vẫn còn ra creative. Mọi ngưỡng và trọng số nằm trong `config.yaml`.
 
+## Trends: tăng bền vững hay chỉ là mùa vụ / nhất thời?
+
+`winfinder trends` làm cho mỗi chủ đề (khai báo trong `config.yaml → trends.topics`):
+
+1. **Bộ keyword:** seed + keyword thêm tay + gợi ý Google Autocomplete. Cache 30 ngày.
+2. **Chuỗi 5 năm theo tuần cho từng thị trường.** Google Trends chuẩn hóa 0–100 riêng cho từng request và mỗi request tối đa 5 keyword, nên tool dùng `seeds[0]` làm **keyword neo** có mặt trong mọi request để quy tất cả về cùng một thang đo. Nhờ vậy cộng được các keyword lại thành chỉ số của cả chủ đề.
+3. **Tách mùa vụ:** dùng trung bình trượt 2×52 tuần để lấy trend thô, rồi tính chỉ số mùa vụ theo từng tuần trong năm, sau đó trừ ra để được chuỗi đã khử mùa vụ. Cách này cho biết xu hướng tới tận tuần gần nhất mà không bị đỉnh mùa đánh lừa.
+4. **Phân loại:**
+
+| Nhãn | Điều kiện chính |
+|---|---|
+| Tăng bền vững | 13 tuần gần nhất ≥ +20% so với cùng kỳ năm trước **và** chuỗi khử mùa vụ dốc lên ≥ 10%/năm |
+| Bùng nổ gần đây | 8 tuần gần nhất ≥ 2× mức nền, chưa đủ lịch sử để nói là bền. Cần theo dõi tiếp |
+| Nhất thời (đã qua đỉnh) | Đỉnh trong 26 tuần ≥ 3× mức nền nhưng 4 tuần gần nhất đã rơi còn ≤ 50% đỉnh |
+| Mùa vụ | Chu kỳ năm đều đặn (F_s ≥ 0.5) **và** biên độ ≥ 40% mức trung bình, không tăng qua các năm |
+| Đang giảm | YoY ≤ −20% và xu hướng khử mùa vụ đi xuống |
+| Ổn định / bão hòa | Còn lại |
+
+5. **Lan rộng thị trường:** nước đầu tiên trong `geos` là thị trường gốc (US). Tool cho biết chủ đề mới tăng ở gốc (đi trước được), đã lan sang nước nào, hay gốc đã chững còn nước khác mới tăng. Nên khai báo `geo_keywords` bằng tiếng bản địa cho DE/FR/NL.
+6. **TAM (ước lượng):** điền `volume_hint`, là search/tháng của `seeds[0]` lấy từ Google Keyword Planner. Tool quy đổi chỉ số Trends của cả bộ keyword ra search/tháng.
+
+**Nguồn dữ liệu (`trends.provider`):**
+- `serpapi`: ổn định và chạy được trên GitHub Actions. Cần secret `SERPAPI_API_KEY`.
+- `direct`: gọi thẳng trends.google.com. Miễn phí nhưng không chính thức, và Google hay chặn IP máy chủ, nên hợp chạy trên máy cá nhân.
+- `csv`: tải CSV bằng tay trên trends.google.com rồi bỏ vào `data/trends_csv/US/…csv`. Luôn dùng được.
+
+```bash
+winfinder trends                                   # mọi chủ đề trong config
+winfinder trends --topic posture --force           # 1 chủ đề, bỏ qua cache
+winfinder trends --keyword "heated vest, heated jacket" --geos US,GB,DE   # thử nhanh
+winfinder trends --provider direct                 # chạy miễn phí từ máy cá nhân
+```
+
+Báo cáo nằm ở `reports/trends.html` và `reports/trends.json`.
+
 ## Chạy
 
 ```bash
 pip install -e ".[dev]"
 
-winfinder demo                      # dữ liệu giả lập, không cần token → demo_out/index.html
+winfinder demo                      # dữ liệu giả lập, không cần token → demo_out/index.html + trends.html
 pytest -q
 
 export META_AD_LIBRARY_TOKEN=...    # token Ad Library API
@@ -41,7 +76,8 @@ winfinder analyze --enrich          # chấm lại từ DB hiện có
 
 1. Tạo token: vào developers.facebook.com, tạo app, hoàn tất xác minh danh tính, rồi lấy access token có quyền truy cập Ad Library API.
 2. Lưu token vào repo: **Settings → Secrets and variables → Actions → New secret**, đặt tên `META_AD_LIBRARY_TOKEN`.
-3. Workflow **Weekly scan** chạy mỗi thứ Hai (hoặc bấm *Run workflow* để chạy tay). Lịch sử được lưu trong `data/winfinder.db`, báo cáo trong `reports/`, và cả hai được commit ngược lại vào repo.
+3. (Tuỳ chọn) Thêm secret `SERPAPI_API_KEY` cho Trends. Không có thì workflow thử provider `direct`.
+4. Workflow **Weekly scan** chạy mỗi thứ Hai (hoặc bấm *Run workflow* để chạy tay). Lịch sử được lưu trong `data/winfinder.db`, báo cáo trong `reports/`, và cả hai được commit ngược lại vào repo.
 
 Lưu ý: chạy hằng tuần mới tích lũy được lịch sử reach để đo tốc độ tăng thật.
 
@@ -53,6 +89,10 @@ winfinder/
   sources/domain.py      RDAP, crt.sh, Shopify products.json
   analysis/velocity.py   creative mới/tuần + nhận diện phase scale
   analysis/scoring.py    gom theo store, chấm điểm
+  analysis/trends.py     tách mùa vụ, đo xu hướng, phân loại keyword/chủ đề
+  sources/trends.py      SerpApi / Google Trends trực tiếp / CSV, keyword neo, Autocomplete
+  trends_pipeline.py     chủ đề × thị trường, cache, ước TAM, mức độ lan rộng
+  trends_report.py       báo cáo Trends
   pipeline.py            collect / enrich
   report.py              xuất JSON + HTML
   demo.py                dữ liệu giả lập

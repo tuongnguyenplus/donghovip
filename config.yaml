@@ -52,6 +52,36 @@ enrich:
   top_n: 30                # chỉ làm giàu dữ liệu cho N store điểm cao nhất
   request_sleep_seconds: 1.0
 
+trends:
+  # serpapi: ổn định, chạy tốt trên GitHub Actions — cần secret SERPAPI_API_KEY
+  # direct : miễn phí, không chính thức — hay bị Google chặn trên IP máy chủ, hợp chạy ở máy cá nhân
+  # csv    : đọc file tải tay từ trends.google.com, đặt vào data/trends_csv/<GEO>/*.csv
+  provider: serpapi
+  csv_dir: data/trends_csv
+  timeframe: today 5-y          # cần ≥ 2 năm để tách mùa vụ
+  geos: [US, GB, DE, FR, NL]    # nước đầu tiên = thị trường gốc; các nước sau để xem đã lan chưa
+  cache_days: 6                 # không gọi lại API nếu dữ liệu mới hơn N ngày
+  request_sleep_seconds: 1.0
+  expand:
+    autocomplete: true          # thêm gợi ý Google Autocomplete vào bộ keyword
+    alphabet: false             # thêm 'seed a', 'seed b'... (nhiều keyword hơn, nhiều request hơn)
+    max_keywords: 12
+    max_keywords_other_geos: 5  # nước ngoài thị trường gốc chỉ lấy N keyword đầu (tiết kiệm request)
+  # Bỏ trống `topics` → mỗi `searches` ở trên tự thành một chủ đề.
+  topics:
+    - name: posture
+      seeds: ["posture corrector"]          # seeds[0] là keyword neo
+      keywords: ["posture brace", "back straightener"]
+      # volume_hint: 74000                  # search/tháng của seeds[0] ở volume_hint_geo (Keyword Planner) → ước TAM
+      # volume_hint_geo: US
+      geo_keywords:                         # keyword bản địa — tiếng Anh ở DE/FR không phản ánh nhu cầu thật
+        DE: ["haltungskorrektur", "geradehalter"]
+        FR: ["correcteur de posture"]
+        NL: ["houdingcorrector"]
+    - name: pet-grooming
+      seeds: ["cat hair remover"]
+      keywords: ["dog grooming brush", "pet hair remover"]
+
 weights:
   velocity: 0.35     # độ dốc creative mới / tuần
   consistency: 0.15  # số tuần liên tục có creative mới

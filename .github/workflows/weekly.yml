@@ -29,15 +29,19 @@ jobs:
       - run: pip install -e .
 
       - name: Kiểm tra token
+        id: tok
         env:
           META_AD_LIBRARY_TOKEN: ${{ secrets.META_AD_LIBRARY_TOKEN }}
         run: |
           if [ -z "$META_AD_LIBRARY_TOKEN" ]; then
-            echo "::error::Chưa có secret META_AD_LIBRARY_TOKEN (Settings → Secrets and variables → Actions)"
-            exit 1
+            echo "::warning::Chưa có secret META_AD_LIBRARY_TOKEN — bỏ qua bước Ad Library, chỉ chạy Trends"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Collect + analyze
+      - name: Ad Library — collect + analyze
+        if: steps.tok.outputs.ok == 'true'
         env:
           META_AD_LIBRARY_TOKEN: ${{ secrets.META_AD_LIBRARY_TOKEN }}
         run: |
@@ -47,11 +51,23 @@ jobs:
             winfinder run --config config.yaml
           fi
 
+      - name: Trends
+        continue-on-error: true   # Trends lỗi không được làm hỏng cả lần quét
+        env:
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+        run: |
+          if [ -n "$SERPAPI_API_KEY" ]; then
+            winfinder trends --config config.yaml --provider serpapi
+          else
+            echo "::warning::Chưa có SERPAPI_API_KEY — thử provider 'direct' (có thể bị Google chặn trên IP máy chủ)"
+            winfinder trends --config config.yaml --provider direct
+          fi
+
       - name: Lưu lịch sử + báo cáo vào repo
         run: |
           git config user.name "winfinder-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/winfinder.db reports/
+          git add -A data/ reports/
           if git diff --cached --quiet; then
             echo "Không có thay đổi"
           else

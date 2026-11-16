@@ -14,6 +14,31 @@ class Search:
 
 
 @dataclass
+class TrendTopic:
+    name: str
+    seeds: list[str]
+    keywords: list[str] = field(default_factory=list)      # thêm tay, ngoài autocomplete
+    volume_hint: int | None = None                           # search volume/tháng của seeds[0] (Keyword Planner)
+    volume_hint_geo: str = "US"
+    geo_keywords: dict[str, list[str]] = field(default_factory=dict)  # keyword bản địa theo nước
+
+
+@dataclass
+class TrendsConfig:
+    provider: str = "serpapi"
+    csv_dir: Path = Path("data/trends_csv")
+    timeframe: str = "today 5-y"
+    geos: list[str] = field(default_factory=lambda: ["US"])
+    autocomplete: bool = True
+    alphabet: bool = False
+    max_keywords: int = 12
+    max_keywords_other_geos: int = 5
+    cache_days: int = 6
+    sleep_seconds: float = 1.0
+    topics: list[TrendTopic] = field(default_factory=list)
+
+
+@dataclass
 class Config:
     database: Path
     report_dir: Path
@@ -32,6 +57,7 @@ class Config:
     enrich_top_n: int
     enrich_sleep_seconds: float
     weights: dict[str, float]
+    trends: TrendsConfig = field(default_factory=TrendsConfig)
 
 
 DEFAULT_WEIGHTS = {"velocity": 0.35, "consistency": 0.15, "reach": 0.2, "newness": 0.15, "spread": 0.15}
@@ -66,4 +92,35 @@ def load_config(path: str | Path) -> Config:
         enrich_top_n=int(enrich.get("top_n", 30)),
         enrich_sleep_seconds=float(enrich.get("request_sleep_seconds", 1.0)),
         weights={**DEFAULT_WEIGHTS, **(raw.get("weights") or {})},
+        trends=_load_trends(raw.get("trends") or {}, base, searches),
+    )
+
+
+def _load_trends(t: dict, base: Path, searches: list[Search]) -> TrendsConfig:
+    topics = [
+        TrendTopic(
+            name=x["name"],
+            seeds=list(x.get("seeds") or x.get("keywords", [])[:1]),
+            keywords=list(x.get("keywords") or []),
+            volume_hint=x.get("volume_hint"),
+            volume_hint_geo=str(x.get("volume_hint_geo", "US")).upper(),
+            geo_keywords={k.upper(): list(v) for k, v in (x.get("geo_keywords") or {}).items()},
+        )
+        for x in t.get("topics") or []
+    ]
+    if not topics:  # mặc định: mỗi search của Ad Library là một chủ đề trends
+        topics = [TrendTopic(name=s.name, seeds=s.keywords) for s in searches]
+    exp = t.get("expand") or {}
+    return TrendsConfig(
+        provider=t.get("provider", "serpapi"),
+        csv_dir=base / t.get("csv_dir", "data/trends_csv"),
+        timeframe=t.get("timeframe", "today 5-y"),
+        geos=[g.upper() for g in t.get("geos", ["US"])],
+        autocomplete=bool(exp.get("autocomplete", True)),
+        alphabet=bool(exp.get("alphabet", False)),
+        max_keywords=int(exp.get("max_keywords", 12)),
+        max_keywords_other_geos=int(exp.get("max_keywords_other_geos", 5)),
+        cache_days=int(t.get("cache_days", 6)),
+        sleep_seconds=float(t.get("request_sleep_seconds", 1.0)),
+        topics=topics,
     )
