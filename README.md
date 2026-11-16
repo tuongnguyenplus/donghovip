@@ -5,7 +5,7 @@ Tìm **store / sản phẩm / angle đang vào phase scale**, tức là đang t�
 | # | Trụ | Tín hiệu | Nguồn | Trạng thái |
 |---|-----|----------|-------|-----------|
 | 1 | **Ad growth** | Creative mới/tuần tăng đều 3–6 tuần, store/domain < 90 ngày | Meta Ad Library API, RDAP, crt.sh, Shopify `products.json` | ✅ v0.1 |
-| 2 | **Traffic** | Traffic tăng song song với ad | CrUX popularity rank (BigQuery), EU reach, branded search | ⏳ |
+| 2 | **Traffic** | Traffic tăng song song với ad | Lượt tìm tên brand (Trends), EU reach ✅ · CrUX rank ⏳ | ✅ một phần |
 | 3 | **Trends** | Keyword set → xu hướng 5 năm, tách xu hướng thật khỏi mùa vụ | Google Trends, Autocomplete | ✅ v0.2 |
 | 4 | **Thị trường** | Đã lan sang các nước EU nào | Ad Library + Trends theo từng nước | ✅ cơ bản |
 | + | **Angle / persona** | Gom ad theo angle, đo tăng trưởng theo angle, gợi ý angle chưa ai khai thác | Text ad + Claude | ✅ |
@@ -82,6 +82,24 @@ Báo cáo nằm ở `reports/trends.html` và `reports/trends.json`.
 
 Nếu tool rút sai keyword, đặt tay trong `config.yaml → link.overrides`, vd `postureglow.com: ["posture corrector"]`.
 Báo cáo nằm ở `reports/winners.html` và `reports/winners.json`.
+
+## Traffic: ad tăng thì traffic có tăng song song không?
+
+Chạy cùng `winfinder link` (`link.traffic`). Với mỗi store, tool so 12 tuần creative mới với:
+
+- **Lượt tìm tên brand trên Google Trends** (12 tháng, theo tuần, toàn cầu). Tên brand lấy từ tên page, khớp với domain. Khi ad tăng, người ta search tên store, nghĩa là ad đang tạo ra khách thật.
+- **Reach EU** của các ad ra mắt mỗi tuần.
+
+| Kết luận traffic | Khi nào | Ảnh hưởng điểm tổng |
+|---|---|---|
+| Tăng cùng ad | Ad ≥ 1.5× và lượt tìm brand ≥ 1.3× (6 tuần gần / 6 tuần trước) | ×1.1 |
+| Chưa tăng theo ad | Ad tăng, lượt tìm brand đứng yên. Có thể còn đang test, chưa chắc có lãi | ×0.9 |
+| Tăng tự nhiên | Lượt tìm brand tăng dù ad không tăng | – |
+| Đang giảm | Lượt tìm brand giảm ≥ 30% | ×0.9 |
+| Chưa đủ lớn | Tên brand gần như chưa có lượt tìm (store nhỏ/mới, rất phổ biến với store dropship) | – |
+| Tên mơ hồ | Lượt tìm đã có từ trước khi store chạy ad, tức tên trùng từ thông dụng, nên không đo được | – |
+
+**Chưa làm:** hạng phổ biến Chrome (CrUX, BigQuery theo tháng). Phần này cần tài khoản Google Cloud và cần kiểm tra đúng cấu trúc bảng trước khi viết.
 
 ## Angle / persona: sản phẩm đang thắng nhờ angle nào?
 

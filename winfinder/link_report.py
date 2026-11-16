@@ -38,6 +38,27 @@ def _pct(x: float | None) -> str:
     return "–" if x is None else f"{x * 100:+.0f}%"
 
 
+TRAFFIC_COLORS = {"confirmed": "#1a7f4b", "organic": "#2c6fb7", "unconfirmed": "#a86b00", "declining": "#c0392b"}
+TRAFFIC_SHORT = {"confirmed": "Tăng cùng ad", "unconfirmed": "Chưa tăng theo ad", "organic": "Tăng tự nhiên",
+                 "flat": "Đi ngang", "declining": "Đang giảm", "too_small": "Chưa đủ lớn", "ambiguous": "Tên mơ hồ",
+                 "no_data": "Không có dữ liệu"}
+
+
+def _traffic_cell(x: LinkedStore) -> str:
+    t = x.traffic
+    if not t:
+        return '<span class="muted">–</span>'
+    v = t["verdict"]
+    color = TRAFFIC_COLORS.get(v)
+    badge = (f'<span class="lbl" style="background:{color}">{_e(TRAFFIC_SHORT[v])}</span>' if color
+             else f'<span class="muted">{_e(TRAFFIC_SHORT.get(v, v))}</span>')
+    spark = _sparkline([round(w) for w in t["brand_weeks"]]) if v not in ("too_small", "ambiguous", "no_data") else ""
+    detail = f'brand “{_e(t["brand_term"])}”'
+    if t.get("brand_ratio") is not None:
+        detail += f' · {t["brand_ratio"]}× vs ad {t["ad_ratio"]}×'
+    return f'{badge}{spark}<div class="muted" title="{_e(t["verdict_text"])}">{detail}</div>'
+
+
 def _row(i: int, x: LinkedStore) -> str:
     name = x.domain or (x.page_names[0] if x.page_names else x.key)
     link = f'<a href="https://{_e(x.domain)}" target="_blank" rel="noopener">{_e(name)}</a>' if x.domain else _e(name)
@@ -80,6 +101,7 @@ def _row(i: int, x: LinkedStore) -> str:
 <td class="num win">{x.win_score:.0f}</td>
 <td>{_sparkline(x.ad_history)}<div class="muted">điểm ad {x.ad_score:.0f}</div></td>
 <td>{trend_cell}</td>
+<td>{_traffic_cell(x)}</td>
 <td class="muted">{_e(x.spread.get("stage", "–"))}</td>
 <td><div class="verdict" style="border-color:{c}">{_e(x.verdict_text)}</div>{basis}</td>
 </tr>"""
@@ -95,11 +117,12 @@ def render(linked: list[LinkedStore], as_of: date, provider: str) -> str:
     )
     body = f"""<style>{CSS}</style>
 <div class="muted">Dữ liệu đến {as_of.isoformat()} · {len(linked)} store đã nối với Trends ({_e(provider)}) ·
-điểm tổng = 55% điểm ad + 45% điểm trends</div>
+điểm tổng = 55% điểm ad + 45% điểm trends, ×1.1 nếu traffic tăng cùng ad, ×0.9 nếu chưa</div>
 <div class="legend-v">{legend}</div>
 <div class="wrap"><table>
 <thead><tr><th class="num">#</th><th>Store</th><th>Sản phẩm (keyword tìm kiếm)</th><th class="num">Điểm tổng</th>
-<th>Creative mới / tuần</th><th>Nhu cầu tìm kiếm (2 năm, khử mùa vụ)</th><th>Lan rộng</th><th>Kết luận</th></tr></thead>
+<th>Creative mới / tuần</th><th>Nhu cầu tìm kiếm (2 năm, khử mùa vụ)</th><th>Traffic (lượt tìm brand, 12 tuần)</th>
+<th>Lan rộng</th><th>Kết luận</th></tr></thead>
 <tbody>{"".join(_row(i, x) for i, x in enumerate(linked, 1))}</tbody></table></div>"""
     return page("Ứng viên", body, active="winners.html")
 

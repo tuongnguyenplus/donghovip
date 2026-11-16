@@ -183,6 +183,9 @@ _PATTERN_BY_KEYWORD = {
     "smart posture corrector": "rising", "heated dog vest": "seasonal", "dog vest": "seasonal",
     "cat hair remover roller": "breakout", "hair remover roller": "breakout",
     "eye bags": "rising", "puffy eyes": "rising", "dark circles": "stable", "back pain": "stable",
+    # lượt tìm tên brand
+    "postureglow": "brand_ramp", "lifteyes": "brand_ramp", "spinealign": "brand_flat",
+    "backbuddy": "brand_flat", "starrynight": "brand_old",
 }
 _GEO_OVERRIDE = {("posture corrector", "DE"): "stable", ("posture brace", "DE"): "stable",
                  ("cat hair remover", "GB"): "stable", ("cat hair remover", "DE"): "stable"}
@@ -208,6 +211,12 @@ def _shape(kind: str, i: int, n: int, rng: random.Random, as_of: date) -> float:
         v = 6 + 90 * math.exp(-((i - peak) / 4) ** 2) + (8 if i > peak else 0)
     elif kind == "declining":
         v = 70 * (1 - t) ** 1.3 + 6
+    elif kind == "brand_ramp":   # brand mới, lượt tìm tăng theo ad 8 tuần gần đây
+        v = 0.0 if i < n - 8 else 8 * (i - (n - 8)) + 10
+    elif kind == "brand_flat":   # có lượt tìm từ ~14 tuần nay nhưng không tăng
+        v = 0.0 if i < n - 14 else 25
+    elif kind == "brand_old":    # từ thông dụng, có lượt tìm từ nhiều năm
+        v = 40 + 5 * math.sin(i / 6)
     else:  # keyword không ai tìm → Trends trả toàn 0
         return 0.0
     return max(0.0, round(v + noise, 1))

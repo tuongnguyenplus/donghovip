@@ -52,6 +52,9 @@ class LinkConfig:
     llm_enabled: bool = True        # dùng Claude hiểu sản phẩm (cần ANTHROPIC_API_KEY), không có → heuristic
     llm_model: str = "claude-opus-5-5"
     llm_effort: str = "low"
+    traffic: bool = True            # đo lượt tìm tên brand (Trends) song song với ad
+    brand_geo: str = ""             # "" = toàn cầu (store bán nhiều nước)
+    brand_timeframe: str = "today 12-m"
 
 
 @dataclass
@@ -141,6 +144,9 @@ def _load_link(x: dict) -> LinkConfig:
         llm_enabled=bool((x.get("llm") or {}).get("enabled", True)),
         llm_model=str((x.get("llm") or {}).get("model", "claude-opus-5-5")),
         llm_effort=str((x.get("llm") or {}).get("effort", "low")),
+        traffic=bool((x.get("traffic") or {}).get("enabled", True)),
+        brand_geo=str((x.get("traffic") or {}).get("brand_geo", "")).upper(),
+        brand_timeframe=str((x.get("traffic") or {}).get("timeframe", "today 12-m")),
     )
 
 

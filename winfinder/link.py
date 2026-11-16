@@ -1,4 +1,4 @@
-"""Nối Ad Library ↔ Trends: store đang scale → hiểu sản phẩm → nhu cầu thị trường → kết luận.
+"""Nối Ad Library ↔ Trends: store đang scale → hiểu sản phẩm → nhu cầu thị trường → traffic → kết luận.
 
 Hiểu sản phẩm (theo thứ tự ưu tiên):
   1. config `link.overrides` (đặt tay)
@@ -15,11 +15,12 @@ import json
 import logging
 import sqlite3
 from dataclasses import asdict, dataclass, field, replace
-from datetime import date
+from datetime import date, timedelta
 from typing import Callable
 
 from winfinder.analysis import keywords as kw
 from winfinder.analysis.product_llm import ProductContext, ProductExtractor, ProductInsight
+from winfinder.analysis.traffic import TrafficSignal, assess, brand_term
 from winfinder.analysis.scoring import StoreResult
 from winfinder.config import Config, TrendTopic
 from winfinder.http import make_session
@@ -74,6 +75,7 @@ class LinkedStore:
     verdict: str = "no_keyword"
     verdict_text: str = VERDICTS["no_keyword"]
     verdict_basis: str = "product"      # product | need — kết luận dựa trên trend nào
+    traffic: dict | None = None         # TrafficSignal: lượt tìm brand có tăng song song với ad không
     win_score: float = 0.0
 
 
@@ -174,6 +176,48 @@ def understand_product(
     return insight
 
 
+def store_reach_weeks(conn: sqlite3.Connection, s: StoreResult, as_of: date, weeks: int = 12) -> list[int]:
+    """Reach EU của các ad ra mắt trong từng tuần (cũ → mới)."""
+    if s.domain:
+        rows = conn.execute("SELECT start_date, eu_total_reach FROM ads WHERE domain = ?", (s.domain,))
+    else:
+        rows = conn.execute("SELECT start_date, eu_total_reach FROM ads WHERE domain IS NULL AND page_id = ?",
+                            (s.key.split(":", 1)[1],))
+    out = [0] * weeks
+    for r in rows:
+        if not r["start_date"]:
+            continue
+        delta = (as_of - date.fromisoformat(r["start_date"])).days
+        if 0 <= delta < weeks * 7:
+            out[weeks - 1 - delta // 7] += r["eu_total_reach"] or 0
+    return out
+
+
+def traffic_signals(
+    conn: sqlite3.Connection, cfg: Config, stores: list[StoreResult], provider: TrendsProvider, today: date,
+) -> dict[str, TrafficSignal]:
+    """Lượt tìm tên brand (Trends, 12 tháng) cho từng store → so với đồ thị ad."""
+    lc = cfg.link
+    terms = {s.key: brand_term(s.domain, s.page_names) for s in stores}
+    topics = {t: TrendTopic(name=f"brand:{t}", seeds=[t]) for t in set(terms.values()) if t}
+    points: dict[str, list] = {}
+    if topics:
+        brand_cfg = replace(cfg, trends=replace(cfg.trends, autocomplete=False, geos=[lc.brand_geo],
+                                                timeframe=lc.brand_timeframe))
+        for tr in run_trends(conn, brand_cfg, provider, today, topics=list(topics.values())):
+            if tr.home:
+                points[tr.name[len("brand:"):]] = [
+                    (date.fromisoformat(w), v) for w, v in zip(tr.home.weeks, tr.home.values)
+                ]
+    out = {}
+    for s in stores:
+        term = terms[s.key]
+        born = today - timedelta(days=s.age_days) if s.age_days is not None else None
+        out[s.key] = assess(term, points.get(term or ""), s.history, born, today,
+                            store_reach_weeks(conn, s, today, len(s.history)))
+    return out
+
+
 def count_competitors(conn: sqlite3.Connection, phrases: list[str], exclude_key: str) -> int:
     keys: set[str] = set()
     for phrase in phrases:
@@ -257,9 +301,12 @@ def link_stores(
         for tr in run_trends(conn, trend_cfg, provider, today, topics=list(topics.values())):
             results[tr.name] = tr
 
+    traffic = traffic_signals(conn, cfg, chosen, provider, today) if lc.traffic else {}
+
     linked = []
     for s in chosen:
         u = understood[s.key]
+        tsig = traffic.get(s.key)
         pk, ins = u.pk, u.insight
         tr = results.get(f"product:{pk.seed}") if pk.seed else None
         need_tr = results.get(f"need:{ins.problem_keywords[0]}") if ins and ins.problem_keywords else None
@@ -287,7 +334,9 @@ def link_stores(
                 page_url=u.page.url if u.page else None,
                 need_trend=need, need_score=need_home.score if need_home else None,
                 verdict=v, verdict_text=VERDICTS[v], verdict_basis=basis,
-                win_score=win_score(s.score, basis_score, v) if pk.seed else 0.0,
+                traffic=tsig.to_dict() if tsig else None,
+                win_score=round(win_score(s.score, basis_score, v) * (tsig.factor if tsig else 1.0), 1)
+                if pk.seed else 0.0,
             )
         )
     linked.sort(key=lambda x: (0 if x.verdict == "strong" else 1, -x.win_score))
