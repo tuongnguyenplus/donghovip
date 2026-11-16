@@ -5,6 +5,7 @@
   winfinder analyze  --config config.yaml   # chấm điểm + xuất báo cáo từ DB hiện có
   winfinder trends   --config config.yaml   # Google Trends cho các chủ đề
   winfinder link     --config config.yaml   # store → keyword sản phẩm → Trends → kết luận
+  winfinder angles   --config config.yaml   # angle/persona của từng sản phẩm, angle nào đang lên
   winfinder demo     --out demo_out         # chạy với dữ liệu giả lập, không cần token
 """
 
@@ -17,7 +18,9 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from winfinder import db, demo, link, link_report, pipeline, report, trends_pipeline, trends_report
+from winfinder import (angles_pipeline, angles_report, db, demo, link, link_report, pipeline, report,
+                       trends_pipeline, trends_report)
+from winfinder.analysis.angles import make_angle_analyzer
 from winfinder.analysis.product_llm import make_extractor
 from winfinder.config import TrendTopic
 from winfinder.sources.trends import TrendsError
@@ -118,7 +121,12 @@ def cmd_demo(args) -> int:
     link_report.write(linked, out, today, "demo")
     print()
     _print_linked(linked)
-    print(f"\nBáo cáo demo: {out / 'winners.html'} · {out / 'index.html'} · {out / 'trends.html'}")
+
+    products = angles_pipeline.run_angles(conn, cfg, link.to_dicts(linked), demo.DemoAngleAnalyzer(), today)
+    angles_report.write(products, out, today, "dữ liệu giả lập")
+    print()
+    _print_angles(products)
+    print(f"\nBáo cáo demo: {out / 'winners.html'} · {out / 'angles.html'} · {out / 'index.html'} · {out / 'trends.html'}")
     return 0
 
 
@@ -129,6 +137,32 @@ def _print_linked(linked) -> None:
         print(f"{x.win_score:>5.0f}  {x.ad_score:>4.0f}  {ts:>5}  {(x.product or '–'):24} "
               f"{x.domain or x.key} — {x.verdict_text.split(' — ')[0]}"
               + (" (theo nhu cầu: " + x.problem_keywords[0] + ")" if x.verdict_basis == "need" else ""))
+
+
+def _print_angles(products) -> None:
+    for p in products:
+        print(f"[{p.generic or p.product}] {p.units} nội dung ad · {len(p.stores)} store")
+        for a in p.angles:
+            print(f"   {a.status_vi:14} {a.recent_share * 100:>4.0f}%  {a.angle.name} — {a.angle.persona}")
+        for u in p.untapped:
+            print(f"   {'chưa khai thác':14}        {u.get('name')} — {u.get('persona')}")
+
+
+def cmd_angles(args) -> int:
+    cfg = load_config(args.config)
+    today = date.fromisoformat(args.as_of) if args.as_of else date.today()
+    linked = angles_pipeline.load_linked(cfg.report_dir)
+    if not linked:
+        log.error("Chưa có %s — chạy 'winfinder link' trước", cfg.report_dir / "winners.json")
+        return 1
+    analyzer = make_angle_analyzer(cfg.angles.enabled, cfg.angles.model, cfg.angles.effort)
+    conn = db.connect(cfg.database)
+    products = angles_pipeline.run_angles(conn, cfg, linked, analyzer, today)
+    note = "" if analyzer else "chưa có ANTHROPIC_API_KEY — chỉ hiện kết quả đã lưu"
+    angles_report.write(products, cfg.report_dir, today, note)
+    _print_angles(products)
+    print(f"\nBáo cáo: {cfg.report_dir / 'angles.html'}")
+    return 0 if analyzer or products else 2
 
 
 def cmd_link(args) -> int:
@@ -226,6 +260,8 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--only-scaling", action="store_true", help="chỉ store có nhãn SCALE")
     sp.add_argument("--no-llm", action="store_true", help="không gọi Claude, chỉ dùng heuristic")
     sp.set_defaults(fn=cmd_link)
+    sp = sub.add_parser("angles", help="chia angle/persona cho sản phẩm trên trang Ứng viên (Claude)"); common(sp)
+    sp.set_defaults(fn=cmd_angles)
     sp = sub.add_parser("demo", help="chạy thử với dữ liệu giả lập"); common(sp)
     sp.add_argument("--out", default="demo_out"); sp.set_defaults(fn=cmd_demo)
 

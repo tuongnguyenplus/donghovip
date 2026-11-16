@@ -7,6 +7,7 @@ from datetime import date
 from pathlib import Path
 
 from winfinder.link import LinkedStore, to_dicts
+from winfinder.angles_report import anchor
 from winfinder.report import _e, _sparkline, page
 from winfinder.trends_report import BADGE_COLORS
 
@@ -74,7 +75,8 @@ def _row(i: int, x: LinkedStore) -> str:
 <td><div class="store">{link} {badge}</div><div class="muted">{_e(" ".join(x.countries))}</div></td>
 <td>{what}<div class="prod">{_e(x.product or "–")}</div>
 <div class="kw">{_e(", ".join(k for k in x.keywords if k != x.product))}</div>{persona}
-<div class="muted">nguồn: {_e(src)}{page_link}{low} · {x.competitors} store khác cùng bán</div></td>
+<div class="muted">nguồn: {_e(src)}{page_link}{low} · {x.competitors} store khác cùng bán</div>
+{f'<a class="kw" href="angles.html#{anchor(x.product)}">xem angle →</a>' if x.product else ""}</td>
 <td class="num win">{x.win_score:.0f}</td>
 <td>{_sparkline(x.ad_history)}<div class="muted">điểm ad {x.ad_score:.0f}</div></td>
 <td>{trend_cell}</td>

@@ -37,10 +37,59 @@ PATTERNS: list[tuple] = [
 SEARCH_KEYWORD = {"posture": "posture corrector", "pet-grooming": "cat hair remover", "eye-care": "eye bags"}
 
 BODIES = [
-    "Gift for mom who sits all day 💝 Free shipping today only.",
     "30-day money back guarantee. Thousands of happy customers.",
     "Limited stock — order today and save 50%.",
 ]
+
+# Nội dung ad theo angle; trọng số theo tiến độ thời gian t ∈ [0, 1] (0 = tuần cũ nhất, 1 = tuần này)
+ANGLE_COPY: dict[str, list[tuple[str, list[str], object]]] = {
+    "posture": [
+        ("desk", ["Desk job back pain? Fix your posture in 2 weeks.",
+                  "Sitting 8 hours a day is wrecking your back. Office workers swear by this."],
+         lambda t: max(0.15, 1.2 - t)),                       # đang giảm
+        ("gift", ["The perfect gift for mom who sits all day 💝",
+                  "Christmas gift idea: help mom stand tall again 🎁"],
+         lambda t: 0.05 + 2.0 * t ** 3),                      # đang lên mạnh
+        ("confidence", ["Stand taller and look more confident in every photo.",
+                        "Slouching makes you look older. Straighten up in days."],
+         lambda t: 0.5),                                      # ổn định
+        ("offer", BODIES, lambda t: 0.3),
+    ],
+    "pet-grooming": [
+        ("black-clothes", ["No more cat hair on your black clothes before work.",
+                           "Cat hair on your work outfit? Gone in one swipe."],
+         lambda t: 0.1 + 1.5 * t ** 2),
+        ("couch", ["Your couch will look brand new — no batteries, reusable forever.",
+                   "Remove pet hair from sofas and car seats in seconds."],
+         lambda t: 0.6),
+        ("offer", BODIES, lambda t: 0.3),
+    ],
+    "eye-care": [
+        ("younger", ["Look 10 years younger in photos — no injections.",
+                     "Women over 40 are ditching eye creams for this."],
+         lambda t: 0.2 + t),
+        ("night-shift", ["Nurses on night shift swear by this for puffy eyes.",
+                         "Long shifts, no sleep? Wake up without dark circles."],
+         lambda t: 2.0 if t > 0.82 else 0.0),                 # mới xuất hiện 2 tuần gần đây
+        ("science", ["Dermatologist-recommended 630nm red light therapy.",
+                     "Clinically studied red light for under-eye bags."],
+         lambda t: 0.5),
+        ("offer", BODIES, lambda t: 0.3),
+    ],
+}
+
+
+ANGLE_SET = {"postureglow.com": "posture", "spinealign.co": "posture", "backbuddy.store": "posture",
+             "furrygroom.com": "pet-grooming", "lifteyes.co": "eye-care"}
+
+
+def _body(rng: random.Random, domain: str | None, t: float) -> str:
+    options = ANGLE_COPY.get(ANGLE_SET.get(domain or "", ""))
+    if not options:
+        return rng.choice(BODIES)
+    weights = [max(0.0, float(fn(t))) for _, _, fn in options]
+    _, texts, _ = rng.choices(options, weights=weights)[0]
+    return rng.choice(texts)
 
 
 def generate(as_of: date, seed: int = 7) -> list[tuple[str, str, dict[str, Any]]]:
@@ -63,7 +112,7 @@ def generate(as_of: date, seed: int = 7) -> list[tuple[str, str, dict[str, Any]]
                     "ad_creation_time": start.isoformat(),
                     "ad_delivery_start_time": start.isoformat(),
                     "ad_delivery_stop_time": (start + timedelta(days=10)).isoformat() if stopped else None,
-                    "ad_creative_bodies": [rng.choice(BODIES)],
+                    "ad_creative_bodies": [_body(rng, domain, w / (n - 1))],
                     "ad_creative_link_titles": [rng.choice(titles)],
                     "ad_creative_link_captions": [domain.upper()] if domain else [],
                     "ad_snapshot_url": f"https://www.facebook.com/ads/library/?id={ad_id}",
@@ -183,3 +232,55 @@ class DemoTrendsProvider:
                 for i in range(self.weeks)
             ]
         return out
+
+
+# ------------------------------------------------------------------ phân tích angle giả lập
+ANGLE_DEFS = {
+    "desk": ("Đau lưng dân văn phòng", "Nhân viên văn phòng ngồi nhiều", "Đau lưng, mỏi vai do ngồi lâu",
+             "Hết đau lưng sau 2 tuần", "problem-solution"),
+    "gift": ("Quà tặng cho mẹ", "Con cái mua quà cho mẹ", "Muốn mẹ khoẻ, đứng thẳng", "Món quà thiết thực", "gift"),
+    "confidence": ("Tự tin, dáng đẹp", "Người ngại dáng gù khi chụp ảnh", "Trông già, thiếu tự tin",
+                   "Đứng thẳng, trông trẻ hơn", "before-after"),
+    "black-clothes": ("Quần áo đen sạch lông", "Người nuôi mèo đi làm văn phòng", "Lông mèo dính quần áo",
+                      "Sạch lông trong một lần lăn", "problem-solution"),
+    "couch": ("Sofa như mới", "Chủ nhà nuôi thú cưng", "Lông bám sofa, ghế xe", "Sạch nhanh, không cần pin",
+              "demonstration"),
+    "younger": ("Trẻ hơn 10 tuổi", "Phụ nữ trên 40", "Bọng mắt làm trông già", "Trẻ hơn không cần tiêm", "before-after"),
+    "night-shift": ("Ca đêm vẫn tươi tỉnh", "Y tá, người làm ca đêm", "Bọng mắt, quầng thâm do thiếu ngủ",
+                    "Thức dậy không còn bọng mắt", "testimonial"),
+    "science": ("Chứng minh khoa học", "Người cần bằng chứng", "Nghi ngờ hiệu quả", "Ánh sáng đỏ 630nm được nghiên cứu",
+                "authority"),
+    "offer": ("Ưu đãi / cam kết hoàn tiền", "Người săn khuyến mãi", "Sợ mua phải hàng kém", "Giảm giá, hoàn tiền 30 ngày",
+              "offer"),
+}
+UNTAPPED = {
+    "posture": [{"name": "Học sinh ôn thi", "persona": "Phụ huynh có con tuổi teen",
+                 "why": "Chưa store nào nhắm phụ huynh lo dáng gù của con"}],
+    "eye-care": [{"name": "Chú rể / cô dâu trước cưới", "persona": "Người sắp cưới",
+                  "why": "Nhu cầu đẹp trong ảnh cưới, chưa ai khai thác"}],
+}
+
+
+class DemoAngleAnalyzer:
+    """Thay Claude trong demo/test: phân loại theo nội dung mẫu đã biết."""
+
+    model = "demo"
+
+    def __init__(self):
+        self.calls = 0
+
+    def analyze(self, product, generic, units):
+        from winfinder.analysis.angles import AngleDef, AngleResult
+
+        self.calls += 1
+        text_to_key = {txt.lower(): key for opts in ANGLE_COPY.values() for key, texts, _ in opts for txt in texts}
+        ids: dict[str, str] = {}
+        assignments = {}
+        for u in units:
+            body = u.text.split(" | ")[-1].lower()
+            key = text_to_key.get(body, "offer")
+            ids.setdefault(key, f"A{len(ids) + 1}")
+            assignments[u.ref] = ids[key]
+        angles = [AngleDef(aid, *ANGLE_DEFS[key]) for key, aid in ids.items()]
+        cat = "posture" if "posture" in product else ("eye-care" if "light" in product or "eye" in product else "")
+        return AngleResult(angles, assignments, UNTAPPED.get(cat, []), "demo")

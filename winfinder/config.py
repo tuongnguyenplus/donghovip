@@ -55,6 +55,15 @@ class LinkConfig:
 
 
 @dataclass
+class AnglesConfig:
+    enabled: bool = True
+    model: str = "claude-opus-5-5"
+    effort: str = "medium"      # chia nhóm cần suy luận hơn trích xuất → medium
+    min_ads: int = 4            # ít hơn N nội dung ad khác nhau → không đủ để chia angle
+    max_products: int = 15      # số sản phẩm (theo điểm ứng viên) được phân tích mỗi lần
+
+
+@dataclass
 class Config:
     database: Path
     report_dir: Path
@@ -75,6 +84,7 @@ class Config:
     weights: dict[str, float]
     trends: TrendsConfig = field(default_factory=TrendsConfig)
     link: LinkConfig = field(default_factory=LinkConfig)
+    angles: AnglesConfig = field(default_factory=AnglesConfig)
 
 
 DEFAULT_WEIGHTS = {"velocity": 0.35, "consistency": 0.15, "reach": 0.2, "newness": 0.15, "spread": 0.15}
@@ -111,6 +121,8 @@ def load_config(path: str | Path) -> Config:
         weights={**DEFAULT_WEIGHTS, **(raw.get("weights") or {})},
         trends=_load_trends(raw.get("trends") or {}, base, searches),
         link=_load_link(raw.get("link") or {}),
+        angles=AnglesConfig(**{k: v for k, v in (raw.get("angles") or {}).items()
+                               if k in AnglesConfig.__dataclass_fields__}),
     )
 
 

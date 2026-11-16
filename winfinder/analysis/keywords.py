@@ -188,13 +188,20 @@ def extract(
         if len(g.split()) > 2 or not (bound(lefts.get(g, [None])) or bound(rights.get(g, [None])))
     ]
     seed = ranked[0][0]
-    # product_type là loại sản phẩm do chính store khai báo → keyword neo phải lấy từ đó nếu có
-    # (tránh chọn keyword nhu cầu như 'eye bags' làm tên sản phẩm)
+    # product_type là loại sản phẩm do chính store khai báo → dùng nguyên cụm (2–4 từ) làm keyword neo;
+    # dài hơn thì chọn cụm điểm cao nhất nằm trong nó. Tránh chọn keyword nhu cầu ('eye bags') hay cụm quá
+    # chung ('red light') làm tên sản phẩm.
+    type_phrase = None
     if page and page.get("product_type"):
-        type_grams = {g for seg in segments(page["product_type"], brand) for _, g, _ in _ngrams(seg)}
-        typed = [g for g, _ in ranked if g in type_grams]
-        if typed:
-            seed = typed[0]
+        segs = segments_raw(page["product_type"], brand)
+        if len(segs) == 1 and 2 <= len(segs[0]) <= 4:
+            type_phrase = " ".join(o for _, o in segs[0])
+            seed = " ".join(n for n, _ in segs[0])  # keyword phụ phải có từ chung với cụm này
+        else:
+            type_grams = {g for seg in segments(page["product_type"], brand) for _, g, _ in _ngrams(seg)}
+            typed = [g for g, _ in ranked if g in type_grams]
+            if typed:
+                seed = typed[0]
     picked = [seed]
     for g, _ in ranked:
         if len(picked) >= max_keywords:
@@ -208,4 +215,7 @@ def extract(
     def show(g: str) -> str:
         return surface[g].most_common(1)[0][0] if surface.get(g) else g
 
-    return ProductKeywords(show(seed), [show(g) for g in picked], source, [(show(g), sc) for g, sc in ranked[:15]])
+    keywords = [show(g) for g in picked]
+    if type_phrase:
+        keywords = [type_phrase, *(k for k in keywords if k != type_phrase)][:max_keywords]
+    return ProductKeywords(keywords[0], keywords, source, [(show(g), sc) for g, sc in ranked[:15]])

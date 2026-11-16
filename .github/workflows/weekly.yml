@@ -76,6 +76,13 @@ jobs:
             winfinder link --config config.yaml --provider direct
           fi
 
+      - name: Angle / persona
+        if: steps.tok.outputs.ok == 'true'
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: winfinder angles --config config.yaml
+
       - name: Lưu lịch sử + báo cáo vào repo
         run: |
           git config user.name "winfinder-bot"

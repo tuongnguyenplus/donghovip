@@ -8,7 +8,7 @@ Tìm **store / sản phẩm / angle đang vào phase scale**, tức là đang t�
 | 2 | **Traffic** | Traffic tăng song song với ad | CrUX popularity rank (BigQuery), EU reach, branded search | ⏳ |
 | 3 | **Trends** | Keyword set → xu hướng 5 năm, tách xu hướng thật khỏi mùa vụ | Google Trends, Autocomplete | ✅ v0.2 |
 | 4 | **Thị trường** | Đã lan sang các nước EU nào | Ad Library + Trends theo từng nước | ✅ cơ bản |
-| + | **Angle / persona** | Gom ad theo angle, đo tăng trưởng theo angle | Text ad + LLM | ⏳ |
+| + | **Angle / persona** | Gom ad theo angle, đo tăng trưởng theo angle, gợi ý angle chưa ai khai thác | Text ad + Claude | ✅ |
 
 > **Giới hạn dữ liệu:** Ad Library API chỉ trả quảng cáo thương mại **phân phối ở EU**. Ad chỉ chạy ở US thì không lấy được qua API. Store US đã scale thường chạy cả IE, NL, DK, SE (nơi ad tiếng Anh phổ biến), nên tool dùng các nước này làm proxy.
 
@@ -83,6 +83,24 @@ Báo cáo nằm ở `reports/trends.html` và `reports/trends.json`.
 Nếu tool rút sai keyword, đặt tay trong `config.yaml → link.overrides`, vd `postureglow.com: ["posture corrector"]`.
 Báo cáo nằm ở `reports/winners.html` và `reports/winners.json`.
 
+## Angle / persona: sản phẩm đang thắng nhờ angle nào?
+
+Một sản phẩm thường được bán bằng nhiều angle, mỗi angle nhắm một tệp khách khác nhau (vd posture corrector: "đau lưng dân văn phòng", "dáng đẹp, tự tin", "quà tặng cho mẹ"). `winfinder angles` đọc `reports/winners.json` rồi làm như sau với từng sản phẩm, gộp mọi store cùng bán:
+
+1. **Gom nội dung ad** (tiêu đề + nội dung) và bỏ trùng. Tối đa 150 nội dung/sản phẩm, ưu tiên nội dung chạy nhiều ad và mới nhất.
+2. **Claude chia 3–8 angle**, gồm tên angle, persona, nỗi đau/mong muốn, lời hứa và kiểu hook (problem-solution, testimonial, gift, before-after…). Claude gán từng ad vào angle và **đề xuất 2–4 angle chưa ai khai thác**. Phần này dùng structured output, `effort: medium` và stream, vì output dài.
+3. **Đo từng angle** bằng ngày bắt đầu chạy của ad, theo cùng cách đo creative velocity:
+
+| Trạng thái | Nghĩa |
+|---|---|
+| Đang lên | Nửa sau cửa sổ có ≥ 1.5× creative mới so với nửa đầu. Các store đang đổ tiền vào angle này |
+| Mới xuất hiện | Angle mới có trong 3 tuần gần đây, trong khi sản phẩm đã chạy từ trước. Đây là tín hiệu store đang test angle mới |
+| Ổn định / Đang giảm / Đã dừng | Angle đã dừng là angle đã thua |
+
+Cột **tỉ trọng ad mới (4 tuần)** cho biết các store đang dồn creative vào angle nào.
+Kết quả Claude được cache theo nội dung ad, nên tuần nào không có ad mới thì không gọi lại.
+Báo cáo nằm ở `reports/angles.html` và `reports/angles.json`. Từ trang Ứng viên bấm "xem angle →" để mở phần angle của sản phẩm đó.
+
 ## Chạy
 
 ```bash
@@ -95,6 +113,7 @@ export META_AD_LIBRARY_TOKEN=...    # token Ad Library API
 winfinder run                       # collect → enrich → analyze → reports/index.html
 winfinder analyze --enrich          # chấm lại từ DB hiện có
 winfinder link                      # store → keyword sản phẩm → Trends → reports/winners.html
+winfinder angles                    # angle/persona của từng sản phẩm → reports/angles.html
 ```
 
 ## Chạy tự động trên GitHub Actions
@@ -124,6 +143,9 @@ winfinder/
   sources/product_page.py đọc trang sản phẩm (Shopify, JSON-LD, meta, headings), chọn hero product
   link.py                nối store ↔ Trends, kết luận, điểm tổng
   link_report.py         trang Ứng viên
+  analysis/angles.py     Claude chia angle/persona, đo tăng trưởng từng angle
+  angles_pipeline.py     chạy angle cho các sản phẩm ứng viên (cache theo nội dung ad)
+  angles_report.py       trang Angle
   pipeline.py            collect / enrich
   report.py              xuất JSON + HTML
   demo.py                dữ liệu giả lập

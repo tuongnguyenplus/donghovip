@@ -91,6 +91,15 @@ CREATE TABLE IF NOT EXISTS product_insights (
     created_on  TEXT NOT NULL
 );
 
+-- kết quả Claude chia angle cho mỗi sản phẩm; fingerprint đổi khi có nội dung ad mới
+CREATE TABLE IF NOT EXISTS product_angles (
+    product     TEXT PRIMARY KEY,
+    fingerprint TEXT NOT NULL,
+    result      TEXT NOT NULL,
+    model       TEXT,
+    created_on  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS domains (
     domain         TEXT PRIMARY KEY,
     registered_at  TEXT,
