@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.env
+build/
+dist/
+# Dữ liệu demo sinh ra khi chạy `winfinder demo`
+demo_out/

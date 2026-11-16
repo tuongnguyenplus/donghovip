@@ -1,0 +1,60 @@
+# Cấu hình WinFinder. Token KHÔNG để ở đây — đặt biến môi trường META_AD_LIBRARY_TOKEN
+# (trên GitHub: Settings → Secrets and variables → Actions → META_AD_LIBRARY_TOKEN).
+
+database: data/winfinder.db
+report_dir: reports
+
+ad_library:
+  api_version: v23.0
+  # Ad Library API chỉ trả ad thương mại phân phối ở EU (DSA).
+  # IE/NL/DK/SE có tỉ lệ ad tiếng Anh cao → proxy tốt cho store US đã lan sang EU.
+  countries: [IE, NL, DE, FR, DK, SE, BE, AT, IT, ES, PL]
+  lookback_days: 70          # lấy ad bắt đầu chạy trong N ngày gần nhất
+  max_pages_per_query: 20    # mỗi page tối đa 250 ad
+  request_sleep_seconds: 1.0
+
+# Mỗi search = 1 ngách. keywords dùng để tìm ad; languages (tuỳ chọn) lọc ngôn ngữ ad.
+searches:
+  - name: posture
+    keywords: ["posture corrector", "back pain relief"]
+    languages: [en]
+  - name: pet-grooming
+    keywords: ["dog grooming brush", "cat hair remover"]
+    languages: [en]
+
+# Domain không phải store (marketplace, mạng xã hội, link rút gọn...) → bỏ qua
+exclude_domains:
+  - facebook.com
+  - fb.me
+  - instagram.com
+  - amazon.com
+  - amazon.de
+  - ebay.com
+  - etsy.com
+  - temu.com
+  - aliexpress.com
+  - tiktok.com
+  - youtube.com
+  - linktr.ee
+  - bit.ly
+  - apps.apple.com
+  - play.google.com
+
+velocity:
+  weeks: 6                 # cửa sổ xét tăng trưởng (tuần)
+  min_total_ads: 5         # ít hơn → bỏ qua, chưa đủ tín hiệu
+  min_active_weeks: 3      # số tuần có ra creative mới trong cửa sổ
+  min_growth_ratio: 1.5    # nửa sau cửa sổ / nửa đầu cửa sổ
+
+new_store_days: 90         # store/domain "mới" nếu tuổi ≤ N ngày
+
+enrich:
+  top_n: 30                # chỉ làm giàu dữ liệu cho N store điểm cao nhất
+  request_sleep_seconds: 1.0
+
+weights:
+  velocity: 0.35     # độ dốc creative mới / tuần
+  consistency: 0.15  # số tuần liên tục có creative mới
+  reach: 0.20        # eu_total_reach
+  newness: 0.15      # store mới
+  spread: 0.15       # số thị trường EU đã chạy

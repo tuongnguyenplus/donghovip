@@ -1,0 +1,65 @@
+name: Weekly scan
+
+on:
+  schedule:
+    - cron: "17 2 * * 1"   # 02:17 UTC thứ Hai hằng tuần
+  workflow_dispatch:
+    inputs:
+      enrich:
+        description: "Tra RDAP / crt.sh / Shopify cho top store"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+
+      - name: Kiểm tra token
+        env:
+          META_AD_LIBRARY_TOKEN: ${{ secrets.META_AD_LIBRARY_TOKEN }}
+        run: |
+          if [ -z "$META_AD_LIBRARY_TOKEN" ]; then
+            echo "::error::Chưa có secret META_AD_LIBRARY_TOKEN (Settings → Secrets and variables → Actions)"
+            exit 1
+          fi
+
+      - name: Collect + analyze
+        env:
+          META_AD_LIBRARY_TOKEN: ${{ secrets.META_AD_LIBRARY_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.enrich }}" = "false" ]; then
+            winfinder run --config config.yaml --no-enrich
+          else
+            winfinder run --config config.yaml
+          fi
+
+      - name: Lưu lịch sử + báo cáo vào repo
+        run: |
+          git config user.name "winfinder-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/winfinder.db reports/
+          if git diff --cached --quiet; then
+            echo "Không có thay đổi"
+          else
+            git commit -m "scan: $(date -u +%Y-%m-%d)"
+            git push
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: reports/
