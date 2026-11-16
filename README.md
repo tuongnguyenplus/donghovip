@@ -12,6 +12,22 @@ Tìm **store / sản phẩm / angle đang vào phase scale**, tức là đang t�
 
 > **Giới hạn dữ liệu:** Ad Library API chỉ trả quảng cáo thương mại **phân phối ở EU**. Ad chỉ chạy ở US thì không lấy được qua API. Store US đã scale thường chạy cả IE, NL, DK, SE (nơi ad tiếng Anh phổ biến), nên tool dùng các nước này làm proxy.
 
+## Giao diện web: nhập ngách, bấm quét, xem báo cáo
+
+```bash
+pip install -e .
+winfinder serve          # mở http://127.0.0.1:8765 trên trình duyệt
+```
+
+- **Ngách:** thêm, sửa, xoá, bật/tắt. Mỗi ngách gồm tên, các keyword tìm ad (keyword đầu là keyword chính cho Trends), ngôn ngữ ad và ghi chú. Danh sách lưu trong `niches.yaml`, GitHub Actions cũng đọc file này. Muốn workflow quét ngách mới thì commit `niches.yaml`.
+- **Quét:** quét tất cả ngách đang bật, hoặc bấm "Quét" ở từng ngách. Chọn được bước cần chạy (Ad Library, Trends, Ứng viên, Angle). Log hiện trực tiếp. Bước nào thiếu key sẽ bị bỏ qua và ghi rõ lý do.
+- **Báo cáo:** Ứng viên, Angle, Store, Trends mở ngay trên cùng trang.
+- **API key:** nhập trên trang, lưu vào `.env` trên máy (quyền 600, đã gitignore, không hiển thị lại).
+
+Chạy trên máy cá nhân còn có lợi là Google Trends ít bị chặn hơn so với chạy trên máy chủ GitHub.
+Server chỉ nghe trên `127.0.0.1`. Mọi thao tác ghi cần token của phiên, và Host header được kiểm tra.
+Quét từ dòng lệnh: `winfinder scan` (tất cả) hoặc `winfinder scan --niche "eye care"`.
+
 ## Cách chấm điểm (0–100)
 
 Ad được gom theo **domain** (lấy từ link caption), nếu không có domain thì gom theo page.
@@ -167,5 +183,8 @@ winfinder/
   pipeline.py            collect / enrich
   report.py              xuất JSON + HTML
   demo.py                dữ liệu giả lập
+  niches.py              danh sách ngách (niches.yaml)
+  runner.py              một lần quét đầy đủ, dùng chung cho web và dòng lệnh
+  server.py              giao diện web `winfinder serve`
   cli.py
 ```

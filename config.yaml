@@ -13,14 +13,8 @@ ad_library:
   max_pages_per_query: 20    # mỗi page tối đa 250 ad
   request_sleep_seconds: 1.0
 
-# Mỗi search = 1 ngách. keywords dùng để tìm ad; languages (tuỳ chọn) lọc ngôn ngữ ad.
-searches:
-  - name: posture
-    keywords: ["posture corrector", "back pain relief"]
-    languages: [en]
-  - name: pet-grooming
-    keywords: ["dog grooming brush", "cat hair remover"]
-    languages: [en]
+# Danh sách ngách nằm ở niches.yaml — sửa trên giao diện web (`winfinder serve`) hoặc sửa tay.
+niches_file: niches.yaml
 
 # Domain không phải store (marketplace, mạng xã hội, link rút gọn...) → bỏ qua
 exclude_domains:

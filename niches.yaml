@@ -1,0 +1,20 @@
+# Danh sách ngách — sửa từ giao diện `winfinder serve` hoặc sửa tay.
+# keywords: dùng để tìm ad trên Ad Library và làm chủ đề Trends.
+# languages: lọc ngôn ngữ ad (mã 2 chữ: en, de, fr...). Bỏ trống = mọi ngôn ngữ.
+niches:
+- name: posture
+  keywords:
+  - posture corrector
+  - back pain relief
+  languages:
+  - en
+  enabled: true
+  note: ví dụ — thay bằng ngách của bạn
+- name: pet-grooming
+  keywords:
+  - cat hair remover
+  - dog grooming brush
+  languages:
+  - en
+  enabled: true
+  note: ví dụ

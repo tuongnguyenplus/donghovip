@@ -6,6 +6,8 @@
   winfinder trends   --config config.yaml   # Google Trends cho các chủ đề
   winfinder link     --config config.yaml   # store → keyword sản phẩm → Trends → kết luận
   winfinder angles   --config config.yaml   # angle/persona của từng sản phẩm, angle nào đang lên
+  winfinder serve                           # giao diện web: nhập ngách, bấm quét, xem báo cáo
+  winfinder scan     [--niche NAME]          # quét đầy đủ từ dòng lệnh
   winfinder demo     --out demo_out         # chạy với dữ liệu giả lập, không cần token
 """
 
@@ -165,6 +167,29 @@ def cmd_angles(args) -> int:
     return 0 if analyzer or products else 2
 
 
+def cmd_serve(args) -> int:
+    from winfinder.server import serve
+
+    serve(Path(args.config), args.host, args.port, open_browser=not args.no_browser)
+    return 0
+
+
+def cmd_scan(args) -> int:
+    from winfinder.runner import STEPS, only_niche, run_scan
+    from winfinder.server import load_env
+
+    load_env(Path(args.config).parent / ".env")
+    cfg = only_niche(load_config(args.config), args.niche)
+    today = date.fromisoformat(args.as_of) if args.as_of else date.today()
+    res = run_scan(cfg, args.steps or STEPS, today)
+    for step, why in res.skipped.items():
+        print(f"bỏ qua {step}: {why}")
+    for step, why in res.failed.items():
+        print(f"LỖI {step}: {why}")
+    print(f"Xong: {', '.join(res.done) or 'không bước nào'} — báo cáo ở {cfg.report_dir}")
+    return 0 if res.ok else 1
+
+
 def cmd_link(args) -> int:
     cfg = load_config(args.config)
     today = date.fromisoformat(args.as_of) if args.as_of else date.today()
@@ -262,6 +287,15 @@ def main(argv: list[str] | None = None) -> int:
     sp.set_defaults(fn=cmd_link)
     sp = sub.add_parser("angles", help="chia angle/persona cho sản phẩm trên trang Ứng viên (Claude)"); common(sp)
     sp.set_defaults(fn=cmd_angles)
+    sp = sub.add_parser("serve", help="mở giao diện web: quản lý ngách, quét, xem báo cáo"); common(sp)
+    sp.add_argument("--host", default="127.0.0.1")
+    sp.add_argument("--port", type=int, default=8765)
+    sp.add_argument("--no-browser", action="store_true", help="không tự mở trình duyệt")
+    sp.set_defaults(fn=cmd_serve)
+    sp = sub.add_parser("scan", help="quét đầy đủ (Ad Library → Trends → Ứng viên → Angle)"); common(sp)
+    sp.add_argument("--niche", help="chỉ quét một ngách")
+    sp.add_argument("--steps", nargs="+", choices=["collect", "trends", "link", "angles"])
+    sp.set_defaults(fn=cmd_scan)
     sp = sub.add_parser("demo", help="chạy thử với dữ liệu giả lập"); common(sp)
     sp.add_argument("--out", default="demo_out"); sp.set_defaults(fn=cmd_demo)
 

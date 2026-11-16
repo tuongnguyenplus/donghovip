@@ -85,6 +85,7 @@ class Config:
     enrich_top_n: int
     enrich_sleep_seconds: float
     weights: dict[str, float]
+    niches_file: Path = Path("niches.yaml")
     trends: TrendsConfig = field(default_factory=TrendsConfig)
     link: LinkConfig = field(default_factory=LinkConfig)
     angles: AnglesConfig = field(default_factory=AnglesConfig)
@@ -104,6 +105,11 @@ def load_config(path: str | Path) -> Config:
         Search(name=s["name"], keywords=list(s["keywords"]), languages=list(s.get("languages") or []))
         for s in raw.get("searches", [])
     ]
+    niches_file = base / raw.get("niches_file", "niches.yaml")
+    if niches_file.exists():  # niches.yaml (sửa từ giao diện web) thay cho `searches` trong config
+        from winfinder.niches import load_niches
+
+        searches = [Search(n.name, n.keywords, n.languages) for n in load_niches(niches_file) if n.enabled]
     return Config(
         database=base / raw.get("database", "data/winfinder.db"),
         report_dir=base / raw.get("report_dir", "reports"),
@@ -113,6 +119,7 @@ def load_config(path: str | Path) -> Config:
         max_pages_per_query=int(al.get("max_pages_per_query", 20)),
         request_sleep_seconds=float(al.get("request_sleep_seconds", 1.0)),
         searches=searches,
+        niches_file=niches_file,
         exclude_domains={d.lower() for d in raw.get("exclude_domains", [])},
         velocity_weeks=int(vel.get("weeks", 6)),
         min_total_ads=int(vel.get("min_total_ads", 5)),
@@ -162,8 +169,10 @@ def _load_trends(t: dict, base: Path, searches: list[Search]) -> TrendsConfig:
         )
         for x in t.get("topics") or []
     ]
-    if not topics:  # mặc định: mỗi search của Ad Library là một chủ đề trends
-        topics = [TrendTopic(name=s.name, seeds=s.keywords) for s in searches]
+    # mỗi ngách chưa có chủ đề riêng trong config → tự thành chủ đề Trends (keyword đầu là neo)
+    have = {t.name.lower() for t in topics}
+    topics += [TrendTopic(name=s.name, seeds=s.keywords[:1], keywords=s.keywords[1:])
+               for s in searches if s.name.lower() not in have and s.keywords]
     exp = t.get("expand") or {}
     return TrendsConfig(
         provider=t.get("provider", "serpapi"),
