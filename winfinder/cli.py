@@ -23,6 +23,7 @@ from pathlib import Path
 from winfinder import (angles_pipeline, angles_report, db, demo, link, link_report, pipeline, report,
                        trends_pipeline, trends_report)
 from winfinder.analysis.angles import make_angle_analyzer
+from winfinder.expand import expand_stores
 from winfinder.analysis.product_llm import make_extractor
 from winfinder.config import TrendTopic
 from winfinder.sources.trends import TrendsError
@@ -73,6 +74,16 @@ def cmd_analyze(args) -> int:
     conn = db.connect(cfg.database)
     if args.enrich:
         pipeline.enrich(conn, cfg, analyze(conn, cfg, today), today)
+    if getattr(args, "expand", False) and cfg.expand.enabled:
+        from winfinder.http import make_session
+        from winfinder.sources.landing import resolve
+
+        client = AdLibraryClient(os.environ.get("META_AD_LIBRARY_TOKEN", ""), cfg.api_version,
+                                 sleep_seconds=cfg.request_sleep_seconds)
+        session = make_session()
+        st = expand_stores(conn, cfg, client, analyze(conn, cfg, today), today,
+                           resolver=lambda d: resolve(session, d, cfg.exclude_domains))
+        log.info("Mở rộng: +%d ad từ %d page, %d trang trung gian", st.new_ads, st.pages_swept, st.presell_resolved)
     results = _report(conn, cfg, today)
     _print_top(results)
     print(f"\nBáo cáo: {cfg.report_dir / 'index.html'}")
@@ -84,6 +95,7 @@ def cmd_run(args) -> int:
     if rc:
         return rc
     args.enrich = not args.no_enrich
+    args.expand = True
     return cmd_analyze(args)
 
 
@@ -105,6 +117,11 @@ def cmd_demo(args) -> int:
     for domain, products in demo.shopify_products().items():
         db.save_domain(conn, domain, registered_at=None, first_cert_at=None, is_shopify=True,
                        product_count=len(products), products=products, checked_on=today)
+    cfg.expand.countries = ["IE"]
+    st = expand_stores(conn, cfg, demo.DemoAdLibraryClient(today), analyze(conn, cfg, today), today,
+                       resolver=demo.demo_resolver)
+    print(f"Mở rộng {st.stores} store: +{st.new_ads} ad, {st.pages_swept} page đã quét, "
+          f"{st.presell_resolved} trang trung gian nối về store ({st.ads_relinked} ad)\n")
     results = _report(conn, cfg, today)
     _print_top(results)
 

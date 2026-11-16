@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 
 from winfinder.analysis.scoring import StoreResult
+from winfinder.sources.landing import LANDING_VI
 
 
 def write_json(results: list[StoreResult], path: Path, as_of: date) -> None:
@@ -90,13 +91,17 @@ def render_html(results: list[StoreResult], as_of: date, limit: int = 200) -> st
         )
         comps = " ".join(f'<span class="chip">{_e(k)} {v:.2f}</span>' for k, v in s.components.items())
         d = s.durability
+        landing = " · ".join(f"{LANDING_VI.get(k, k)} {n}" for k, n in s.landing_mix.items())
+        if s.via_domains:
+            landing += " (qua " + ", ".join(s.via_domains[:2]) + ")"
         color = ARCH_COLORS.get(s.archetype, "#6b6b66")
         badge = f'<span class="lbl" style="background:{color}">{_e(ARCH_SHORT.get(s.archetype, s.archetype))}</span>'
         surv = "–" if d["survival_30"] is None else f'{d["survival_30"] * 100:.0f}%'
         rows.append(
             f"""<tr>
 <td class="num">{i}</td>
-<td><div class="store">{link}</div><div class="muted">{_e(", ".join(s.page_names[:2]))}</div>
+<td><div class="store">{link}</div><div class="muted">{s.pages} page: {_e(", ".join(s.page_names[:3]))}</div>
+<div class="muted">{_e(landing)}</div>
 <details><summary>Chi tiết</summary><div class="chips">{comps}</div>
 <div class="muted">{_e("; ".join(d["notes"]))}</div><ul>{samples}</ul></details></td>
 <td>{badge}<div class="muted" style="max-width:220px">{_e(s.archetype_vi.split(" — ")[-1])}</div></td>

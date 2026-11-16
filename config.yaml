@@ -44,6 +44,16 @@ durability:
   treadmill_survival: 0.15 # < 15% sống được + ra nhiều ad mới = máy xay creative
   treadmill_launches_4w: 6
 
+# Mở rộng store từ domain gốc: tìm mọi page chạy cho store, lấy TOÀN BỘ ad, lần ngược page vệ tinh
+expand:
+  enabled: true
+  top_n: 15             # số store điểm cao nhất được mở rộng mỗi lần quét
+  min_score: 40
+  countries: []         # trống = 3 nước đầu của ad_library.countries
+  max_pages: 5
+  refresh_days: 7       # không quét lại page trong N ngày
+  resolve_presell: true # advertorial/listicle trên domain khác → nối về store gốc
+
 new_store_days: 90         # store/domain "mới" nếu tuổi ≤ N ngày
 
 enrich:
@@ -109,9 +119,10 @@ angles:
   max_products: 15      # chỉ phân tích N sản phẩm điểm ứng viên cao nhất
 
 weights:
-  momentum: 0.30     # ad đang sống tăng
+  momentum: 0.25     # ad đang sống tăng
   durability: 0.30   # tỉ lệ sống sót ≥ 30 ngày + số ad bền đang chạy
   duplication: 0.10  # % ad đang sống thuộc creative được nhân bản
-  reach: 0.10        # eu_total_reach
+  direct: 0.10       # chạy thẳng store/PDP (ưu tiên) thay vì qua advertorial/listicle
+  reach: 0.05        # eu_total_reach
   newness: 0.10      # store mới
   spread: 0.10       # số thị trường đã chạy

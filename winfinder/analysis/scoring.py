@@ -11,6 +11,7 @@ from datetime import date
 
 from winfinder.analysis.durability import AdLife, Durability, creative_key, measure
 from winfinder.config import Config
+from winfinder.sources.landing import DIRECTNESS, classify_url
 
 HISTORY_WEEKS = 12  # số tuần hiển thị trên sparkline
 
@@ -40,6 +41,10 @@ class StoreResult:
     score: float
     shopify: dict | None = None
     sample_ads: list[dict] = field(default_factory=list)
+    pages: int = 1                    # số page Facebook đang chạy cho store
+    landing_mix: dict = field(default_factory=dict)   # loại landing → số ad đang sống
+    direct_share: float = 0.0         # mức chạy thẳng store/PDP (1 = toàn PDP, 0.3 = toàn trang trung gian)
+    via_domains: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -58,7 +63,17 @@ def _newness(age_days: int | None, new_store_days: int) -> float:
     return _clamp(1 - (age_days - new_store_days) / new_store_days)
 
 
-def components(d: Durability, eu_reach: int, n_countries: int, age_days: int | None, cfg: Config) -> dict[str, float]:
+def landing_type(row: sqlite3.Row) -> str:
+    """Loại landing của một ad: ưu tiên kết quả đã phân giải, rồi đường dẫn đầy đủ, rồi domain."""
+    if row["landing_type"]:
+        return row["landing_type"]
+    if row["link_url"]:
+        return classify_url(row["link_url"], row["domain"]) or "store"
+    return "presell" if row["via_domain"] else "store"
+
+
+def components(d: Durability, eu_reach: int, n_countries: int, age_days: int | None, cfg: Config,
+               direct: float = 0.8) -> dict[str, float]:
     if d.survival_30 is None or d.aged_ads < cfg.durability.min_aged_ads:
         durab = 0.4 * _clamp(d.alive_30 / 5) + 0.3  # chưa đủ tuổi → trung tính, không phạt
     else:
@@ -67,6 +82,7 @@ def components(d: Durability, eu_reach: int, n_countries: int, age_days: int | N
         "momentum": _clamp((d.active_growth - 1) / 1.5),         # ad đang sống ×2.5 → 1.0
         "durability": round(durab, 3),
         "duplication": d.dup_share,
+        "direct": direct,
         "reach": _clamp(math.log10(eu_reach + 1) / 6),           # 1M reach → 1.0
         "newness": _newness(age_days, cfg.new_store_days),
         "spread": _clamp(n_countries / 3),
@@ -85,14 +101,17 @@ def _d(s: str | None) -> date | None:
 
 
 def analyze(conn: sqlite3.Connection, cfg: Config, as_of: date, search: str | None = None) -> list[StoreResult]:
-    sql = "SELECT a.* FROM ads a"
-    params: tuple = ()
-    if search:
-        sql += " WHERE a.ad_id IN (SELECT ad_id FROM ad_searches WHERE search = ?)"
-        params = (search,)
+    # trang trung gian chưa nối được về store nào → không phải store, bỏ khỏi danh sách
+    presell = {r[0] for r in conn.execute("SELECT domain FROM domain_links WHERE kind = 'presell'")}
     stores: dict[str, list[sqlite3.Row]] = defaultdict(list)
-    for row in conn.execute(sql, params):
+    for row in conn.execute("SELECT * FROM ads"):
+        if row["domain"] in presell:
+            continue
         stores[row["domain"] or f"page:{row['page_id']}"].append(row)
+    if search:
+        # store có ít nhất 1 ad khớp ngách → giữ TOÀN BỘ ad của store (kể cả ad tìm được khi mở rộng)
+        in_search = {r[0] for r in conn.execute("SELECT ad_id FROM ad_searches WHERE search = ?", (search,))}
+        stores = {k: rows for k, rows in stores.items() if any(r["ad_id"] in in_search for r in rows)}
 
     countries_by_ad: dict[str, set[str]] = defaultdict(set)
     for r in conn.execute("SELECT ad_id, country FROM ad_countries"):
@@ -127,7 +146,12 @@ def analyze(conn: sqlite3.Connection, cfg: Config, as_of: date, search: str | No
             age_source, born = "crt.sh", date.fromisoformat(dom["first_cert_at"])
         age_days = (as_of - born).days
 
-        comps = components(dur, eu_reach, len(countries), age_days, cfg)
+        live_rows = [r for r in rows if not r["stop_date"] or r["stop_date"] >= as_of.isoformat()] or rows
+        mix: dict[str, int] = defaultdict(int)
+        for r in live_rows:
+            mix[landing_type(r)] += 1
+        direct = sum(DIRECTNESS.get(t, 0.5) * n for t, n in mix.items()) / max(sum(mix.values()), 1)
+        comps = components(dur, eu_reach, len(countries), age_days, cfg, direct)
         top = sorted(rows, key=lambda r: r["eu_total_reach"] or 0, reverse=True)[:3]
         results.append(
             StoreResult(
@@ -151,6 +175,10 @@ def analyze(conn: sqlite3.Connection, cfg: Config, as_of: date, search: str | No
                 archetype=dur.archetype,
                 archetype_vi=dur.archetype_vi,
                 durability=dur.to_dict(),
+                pages=len({r["page_id"] for r in rows}),
+                landing_mix=dict(sorted(mix.items(), key=lambda kv: -kv[1])),
+                direct_share=round(direct, 3),
+                via_domains=sorted({r["via_domain"] for r in rows if r["via_domain"]}),
                 components={k: round(v, 3) for k, v in comps.items()},
                 score=weighted_score(comps, cfg.weights),
                 shopify=(

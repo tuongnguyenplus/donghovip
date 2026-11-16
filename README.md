@@ -28,6 +28,17 @@ Chạy trên máy cá nhân còn có lợi là Google Trends ít bị chặn hơ
 Server chỉ nghe trên `127.0.0.1`. Mọi thao tác ghi cần token của phiên, và Host header được kiểm tra.
 Quét từ dòng lệnh: `winfinder scan` (tất cả) hoặc `winfinder scan --niche "eye care"`.
 
+## Store = domain gốc: mọi page, mọi landing
+
+Một store thường chạy nhiều page, có page vệ tinh chạy advertorial/listicle trên domain khác. Tìm theo keyword chỉ thấy những ad có nhắc keyword, nên sẽ đếm thiếu và đo sai độ bền. Sau mỗi lần thu thập, `expand` làm 3 việc với các store điểm cao (`config.yaml → expand`):
+
+1. **Tìm theo domain + tên brand** để phát hiện page có ad trỏ về store, hoặc ad nhắc tên brand nhưng trỏ tới domain khác.
+2. **Quét toàn bộ ad của từng page** (`search_page_ids`), không lọc keyword. Page đã quét không quét lại trong 7 ngày.
+3. **Lần ngược trang trung gian:** domain lạ được kiểm tra là store (có giỏ hàng/Shopify) hay trang presell. Nếu là presell, tool tìm link mua hàng (nút CTA, `/products/`) để xác định store đích, rồi nối ad về store gốc, ghi lại domain trung gian và loại trang (advertorial / listicle / quiz). Trang trung gian không còn hiện như một store riêng.
+
+**Ưu tiên store chạy thẳng PDP.** Win thật thì chạy kiểu gì cũng win. Chỉ số `direct` được tính như sau: PDP 1.0, thẳng store 0.8, collection 0.7, trang chủ 0.6, quiz 0.4, advertorial/listicle 0.3.
+**Giới hạn:** API Meta chỉ trả domain hiển thị, không trả đường dẫn đầy đủ. Vì vậy chỉ biết ad *thẳng store* hay *qua trang trung gian*. Phân biệt PDP / trang chủ / collection cần `link_url` từ connector (vd Foreplay).
+
 ## Tư duy đo: ad đang sống, độ bền, nhân bản
 
 **Tăng trưởng thật là lượng ad ĐANG SỐNG tăng**, không phải số creative mới ra. Store phải liên tục đẻ creative vì creative chết nhanh là "máy xay creative", khó scale. Ad bền là bằng chứng có lãi và dễ scale.
@@ -51,7 +62,7 @@ Quét từ dòng lệnh: `winfinder scan` (tất cả) hoặc `winfinder scan --
 | Evergreen | Ít ad mới, có ≥ 2 ad sống ≥ 60 ngày |
 | Đang test / Ổn định / Đang giảm / Đã dừng | Như tên gọi |
 
-Điểm store (0–100) = momentum 30% + độ bền 30% + nhân bản 10% + reach 10% + độ mới 10% + số thị trường 10%. Mọi ngưỡng nằm trong `config.yaml → durability`, trọng số nằm trong `weights`. Store chưa đủ tuổi thì độ bền được tính trung tính, không bị phạt.
+Điểm store (0–100) = momentum 25% + độ bền 30% + nhân bản 10% + chạy thẳng 10% + reach 5% + độ mới 10% + số thị trường 10%. Mọi ngưỡng nằm trong `config.yaml → durability`, trọng số nằm trong `weights`. Store chưa đủ tuổi thì độ bền được tính trung tính, không bị phạt.
 
 ## Trends: tăng bền vững hay chỉ là mùa vụ / nhất thời?
 
@@ -181,6 +192,8 @@ winfinder/
   sources/adlibrary.py   Meta Ad Library client (phân trang, xử lý rate limit)
   sources/domain.py      RDAP, crt.sh, Shopify products.json
   analysis/durability.py ad đang sống, độ bền, nhân bản, dạng store
+  expand.py              mở rộng store: mọi page, toàn bộ ad, lần ngược trang trung gian
+  sources/landing.py     loại landing page, phân giải advertorial/listicle về store gốc
   analysis/scoring.py    gom theo store, chấm điểm
   analysis/trends.py     tách mùa vụ, đo xu hướng, phân loại keyword/chủ đề
   sources/trends.py      SerpApi / Google Trends trực tiếp / CSV, keyword neo, Autocomplete

@@ -100,6 +100,21 @@ CREATE TABLE IF NOT EXISTS product_angles (
     created_on  TEXT NOT NULL
 );
 
+-- domain hiển thị trên ad → store thật (advertorial/listicle trên domain trung gian dẫn về store)
+CREATE TABLE IF NOT EXISTS domain_links (
+    domain       TEXT PRIMARY KEY,
+    kind         TEXT NOT NULL,        -- store | presell | unknown
+    resolves_to  TEXT,                 -- store gốc nếu là trang trung gian
+    landing_type TEXT,                 -- advertorial | listicle | quiz | presell
+    checked_on   TEXT NOT NULL
+);
+
+-- page đã quét toàn bộ ad (search_page_ids) — không quét lại trong refresh_days
+CREATE TABLE IF NOT EXISTS swept_pages (
+    page_id  TEXT PRIMARY KEY,
+    swept_on TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS domains (
     domain         TEXT PRIMARY KEY,
     registered_at  TEXT,
@@ -112,6 +127,16 @@ CREATE TABLE IF NOT EXISTS domains (
 """
 
 
+# cột thêm sau phiên bản đầu — tự thêm vào DB cũ, không mất dữ liệu
+AD_COLUMNS = {
+    "landing_domain": "TEXT",   # domain hiển thị trên ad (caption)
+    "via_domain": "TEXT",       # domain trung gian (advertorial/listicle) nếu ad không trỏ thẳng store
+    "link_url": "TEXT",         # đường dẫn đầy đủ (connector có; API Meta không có)
+    "landing_type": "TEXT",     # pdp | collection | home | store | advertorial | listicle | quiz | presell
+    "source": "TEXT",           # meta | foreplay | ...
+}
+
+
 def connect(path: str | Path) -> sqlite3.Connection:
     path = Path(path)
     if str(path) != ":memory:":
@@ -119,6 +144,12 @@ def connect(path: str | Path) -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(ads)")}
+    for col, typ in AD_COLUMNS.items():
+        if col not in have:
+            conn.execute(f"ALTER TABLE ads ADD COLUMN {col} {typ}")
+    conn.execute("UPDATE ads SET landing_domain = domain WHERE landing_domain IS NULL AND via_domain IS NULL")
+    conn.commit()
     return conn
 
 
@@ -138,11 +169,15 @@ def upsert_ads(
             """
             INSERT INTO ads (ad_id, page_id, page_name, domain, created_at, start_date, stop_date,
                              bodies, titles, captions, snapshot_url, platforms, languages,
-                             eu_total_reach, first_seen, last_seen)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                             eu_total_reach, first_seen, last_seen, landing_domain, link_url, source)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(ad_id) DO UPDATE SET
                 page_name=excluded.page_name,
-                domain=COALESCE(excluded.domain, ads.domain),
+                -- domain đã được nối về store gốc (via_domain) thì giữ nguyên
+                domain=CASE WHEN ads.via_domain IS NOT NULL THEN ads.domain
+                            ELSE COALESCE(excluded.domain, ads.domain) END,
+                landing_domain=COALESCE(excluded.landing_domain, ads.landing_domain),
+                link_url=COALESCE(excluded.link_url, ads.link_url),
                 stop_date=excluded.stop_date,
                 eu_total_reach=COALESCE(excluded.eu_total_reach, ads.eu_total_reach),
                 last_seen=excluded.last_seen
@@ -152,7 +187,7 @@ def upsert_ads(
                 ad.stop_date, json.dumps(ad.bodies, ensure_ascii=False),
                 json.dumps(ad.titles, ensure_ascii=False), json.dumps(ad.captions, ensure_ascii=False),
                 ad.snapshot_url, json.dumps(ad.platforms), json.dumps(ad.languages),
-                ad.eu_total_reach, today, today,
+                ad.eu_total_reach, today, today, ad.domain, ad.link_url, ad.source,
             ),
         )
         conn.execute("INSERT OR IGNORE INTO ad_countries VALUES (?,?)", (ad.ad_id, country))
@@ -233,3 +268,25 @@ def load_keyword_set(conn: sqlite3.Connection, topic: str) -> tuple[list[str] | 
     if not r:
         return None, None
     return json.loads(r["keywords"]), date.fromisoformat(r["fetched_on"])
+
+
+def save_domain_link(conn: sqlite3.Connection, domain: str, kind: str, resolves_to: str | None,
+                     landing_type: str | None, checked_on: date) -> None:
+    conn.execute("INSERT OR REPLACE INTO domain_links VALUES (?,?,?,?,?)",
+                 (domain, kind, resolves_to, landing_type, checked_on.isoformat()))
+    conn.commit()
+
+
+def apply_domain_links(conn: sqlite3.Connection) -> int:
+    """Nối ad trỏ tới trang trung gian về store gốc. Idempotent — chạy lại sau mỗi lần thu thập."""
+    n = 0
+    for r in conn.execute("SELECT domain, resolves_to, landing_type FROM domain_links "
+                          "WHERE kind = 'presell' AND resolves_to IS NOT NULL").fetchall():
+        cur = conn.execute(
+            "UPDATE ads SET domain = ?, via_domain = ?, landing_type = COALESCE(?, 'presell') "
+            "WHERE landing_domain = ? AND (via_domain IS NULL OR domain != ?)",
+            (r["resolves_to"], r["domain"], r["landing_type"], r["domain"], r["resolves_to"]),
+        )
+        n += cur.rowcount
+    conn.commit()
+    return n

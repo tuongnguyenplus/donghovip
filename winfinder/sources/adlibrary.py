@@ -64,6 +64,8 @@ class Ad:
     platforms: list[str]
     languages: list[str]
     eu_total_reach: int | None
+    link_url: str | None = None       # đường dẫn đầy đủ (connector có; API Meta không trả)
+    source: str = "meta"
 
 
 def extract_domain(captions: list[str] | None, exclude: set[str] = frozenset()) -> str | None:
@@ -145,10 +147,27 @@ class AdLibraryClient:
         max_pages: int = 20,
     ) -> Iterator[dict[str, Any]]:
         """Trả về ad thô (dict) khớp keyword, đã phân phối tới `country`, bắt đầu từ `since`."""
-        params: dict[str, Any] | None = {
+        params = self._base_params(country, since)
+        params.update({"search_terms": keyword, "search_type": "KEYWORD_UNORDERED"})
+        if languages:
+            params["languages"] = json.dumps(languages)
+        yield from self._paginate(params, max_pages)
+
+    def search_pages(
+        self, page_ids: list[str], country: str, since: date, max_pages: int = 20,
+    ) -> Iterator[dict[str, Any]]:
+        """TOÀN BỘ ad của các page (tối đa 10 page/lần) — không lọc keyword."""
+        if not page_ids:
+            return
+        if len(page_ids) > 10:
+            raise ValueError("search_page_ids tối đa 10 page mỗi lần")
+        params = self._base_params(country, since)
+        params["search_page_ids"] = json.dumps([int(p) if str(p).isdigit() else p for p in page_ids])
+        yield from self._paginate(params, max_pages)
+
+    def _base_params(self, country: str, since: date) -> dict[str, Any]:
+        return {
             "access_token": self.token,
-            "search_terms": keyword,
-            "search_type": "KEYWORD_UNORDERED",
             "ad_type": "ALL",
             "ad_active_status": "ALL",
             "ad_reached_countries": json.dumps([country]),
@@ -156,8 +175,8 @@ class AdLibraryClient:
             "fields": ",".join(FIELDS),
             "limit": 250,
         }
-        if languages:
-            params["languages"] = json.dumps(languages)
+
+    def _paginate(self, params: dict[str, Any] | None, max_pages: int) -> Iterator[dict[str, Any]]:
         url: str | None = self.base_url
         pages = 0
         while url and pages < max_pages:

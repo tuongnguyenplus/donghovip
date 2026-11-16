@@ -17,6 +17,9 @@ from winfinder.analysis.angles import make_angle_analyzer
 from winfinder.analysis.product_llm import make_extractor
 from winfinder.analysis.scoring import analyze
 from winfinder.config import Config
+from winfinder.expand import expand_stores
+from winfinder.http import make_session
+from winfinder.sources.landing import resolve
 from winfinder.sources.adlibrary import AdLibraryClient, AdLibraryError
 from winfinder.sources.trends import TrendsError
 
@@ -99,6 +102,13 @@ def run_scan(cfg: Config, steps: list[str] | None = None, today: date | None = N
         n = pipeline.collect(conn, cfg, client, today)
         log.info("Đã lưu %d ad", n)
         stores = analyze(conn, cfg, today)
+        if cfg.expand.enabled:
+            session = make_session()
+            st = expand_stores(conn, cfg, client, stores, today,
+                               resolver=lambda d: resolve(session, d, cfg.exclude_domains))
+            log.info("Mở rộng %d store: +%d ad từ %d page, %d trang trung gian nối về store",
+                     st.stores, st.new_ads, st.pages_swept, st.presell_resolved)
+            stores = analyze(conn, cfg, today)
         pipeline.enrich(conn, cfg, stores, today)
         stores = analyze(conn, cfg, today)
         report.write_json(stores, cfg.report_dir / "latest.json", today)

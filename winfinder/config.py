@@ -69,6 +69,17 @@ class AnglesConfig:
 
 
 @dataclass
+class ExpandConfig:
+    enabled: bool = True
+    top_n: int = 15              # số store (điểm cao nhất) được mở rộng mỗi lần quét
+    min_score: float = 40.0
+    countries: list[str] = field(default_factory=list)  # trống = 3 nước đầu trong ad_library.countries
+    max_pages: int = 5           # trang kết quả (250 ad/trang) tối đa mỗi truy vấn
+    refresh_days: int = 7        # không quét lại page trong N ngày
+    resolve_presell: bool = True # lần ngược advertorial/listicle về store gốc
+
+
+@dataclass
 class Config:
     database: Path
     report_dir: Path
@@ -87,11 +98,12 @@ class Config:
     trends: TrendsConfig = field(default_factory=TrendsConfig)
     durability: DurabilityRules = field(default_factory=DurabilityRules)
     link: LinkConfig = field(default_factory=LinkConfig)
+    expand: ExpandConfig = field(default_factory=ExpandConfig)
     angles: AnglesConfig = field(default_factory=AnglesConfig)
 
 
-DEFAULT_WEIGHTS = {"momentum": 0.30, "durability": 0.30, "duplication": 0.10, "reach": 0.10, "newness": 0.10,
-                   "spread": 0.10}
+DEFAULT_WEIGHTS = {"momentum": 0.25, "durability": 0.30, "duplication": 0.10, "direct": 0.10, "reach": 0.05,
+                   "newness": 0.10, "spread": 0.10}
 
 
 def load_config(path: str | Path) -> Config:
@@ -127,6 +139,9 @@ def load_config(path: str | Path) -> Config:
         trends=_load_trends(raw.get("trends") or {}, base, searches),
         link=_load_link(raw.get("link") or {}),
         durability=_load_durability(raw.get("durability") or {}),
+        expand=ExpandConfig(**{k: ([c.upper() for c in v] if k == "countries" else v)
+                               for k, v in (raw.get("expand") or {}).items()
+                               if k in ExpandConfig.__dataclass_fields__}),
         angles=AnglesConfig(**{k: v for k, v in (raw.get("angles") or {}).items()
                                if k in AnglesConfig.__dataclass_fields__}),
     )

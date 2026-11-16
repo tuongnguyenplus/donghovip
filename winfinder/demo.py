@@ -313,3 +313,77 @@ class DemoAngleAnalyzer:
         angles = [AngleDef(aid, *ANGLE_DEFS[key]) for key, aid in ids.items()]
         cat = "posture" if "posture" in product else ("eye-care" if "light" in product or "eye" in product else "")
         return AngleResult(angles, assignments, UNTAPPED.get(cat, []), "demo")
+
+
+# ------------------------------------------------------------------ ad chỉ tìm thấy khi mở rộng theo domain
+# (không chứa keyword ngách → tìm theo keyword không thấy)
+HIDDEN = [
+    # page thứ 2 của PostureGlow, trỏ thẳng store
+    ("postureglow.com", "PostureGlow Official", "POSTUREGLOW.COM",
+     ["PostureGlow — stand tall", "Meet PostureGlow"], [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 4]),
+    # page vệ tinh chạy advertorial trên domain trung gian, dẫn về lifteyes.co
+    ("lifteyes.co", "Beauty Insider Daily", "BEAUTYINSIDERDAILY.COM",
+     ["I tried LiftEyes for 30 days — here's what happened", "Why women over 40 are switching to LiftEyes"],
+     [0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4]),
+]
+PRESELL = {"beautyinsiderdaily.com": ("presell", "lifteyes.co", "advertorial")}
+
+
+def hidden_raws(as_of: date, seed: int = 11) -> list[tuple[str, dict[str, Any]]]:
+    rng = random.Random(seed)
+    out = []
+    ad_id = 900000
+    for _store, page, caption, titles, weeks in HIDDEN:
+        n = len(weeks)
+        for w, count in enumerate(weeks):
+            for _ in range(count):
+                ad_id += 1
+                start = as_of - timedelta(days=(n - 1 - w) * 7 + rng.randint(0, 6))
+                raw = {
+                    "id": str(ad_id), "page_id": str(zlib.crc32(page.encode())), "page_name": page,
+                    "ad_creation_time": start.isoformat(), "ad_delivery_start_time": start.isoformat(),
+                    "ad_delivery_stop_time": None if rng.random() < 0.85 else (start + timedelta(days=9)).isoformat(),
+                    "ad_creative_bodies": [rng.choice(titles) + " Read the full story."],
+                    "ad_creative_link_titles": [rng.choice(titles)],
+                    "ad_creative_link_captions": [caption],
+                    "ad_snapshot_url": f"https://www.facebook.com/ads/library/?id={ad_id}",
+                    "publisher_platforms": ["facebook"], "languages": ["en"],
+                    "eu_total_reach": int(5000 * rng.uniform(0.3, 1.7)),
+                }
+                out.append(("IE", raw))
+    return out
+
+
+class DemoAdLibraryClient:
+    """Thay Ad Library API trong demo/test: một 'vũ trụ' ad cố định, tìm theo keyword và theo page."""
+
+    def __init__(self, as_of: date):
+        main = [(c, raw) for _s, c, raw in generate(as_of)]
+        self.universe = {(c, raw["id"]): raw for c, raw in main + hidden_raws(as_of)}
+        self.calls: list[tuple] = []
+
+    def _in(self, country):
+        return [raw for (c, _), raw in self.universe.items() if c == country]
+
+    def search(self, keyword, country, since, languages=None, max_pages=20):
+        self.calls.append(("search", keyword, country))
+        k = keyword.lower()
+        for raw in self._in(country):
+            text = " ".join(raw["ad_creative_link_titles"] + raw["ad_creative_bodies"]
+                            + raw["ad_creative_link_captions"]).lower()
+            if k in text:
+                yield raw
+
+    def search_pages(self, page_ids, country, since, max_pages=20):
+        self.calls.append(("pages", tuple(page_ids), country))
+        ids = set(map(str, page_ids))
+        for raw in self._in(country):
+            if raw["page_id"] in ids:
+                yield raw
+
+
+def demo_resolver(domain: str):
+    from winfinder.sources.landing import Resolution
+
+    kind, target, lt = PRESELL.get(domain, ("store", None, None))
+    return Resolution(kind, target, lt)
