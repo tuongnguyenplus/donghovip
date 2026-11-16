@@ -125,6 +125,23 @@ CREATE TABLE IF NOT EXISTS labels (
     PRIMARY KEY (kind, key)
 );
 
+-- bài viết mạng xã hội theo (nguồn, truy vấn) — không gọi lại trong refresh_days
+CREATE TABLE IF NOT EXISTS social_cache (
+    source     TEXT NOT NULL,
+    query      TEXT NOT NULL,
+    fetched_on TEXT NOT NULL,
+    posts      TEXT NOT NULL,
+    PRIMARY KEY (source, query)
+);
+
+-- kết quả Claude xác minh angle/persona; fingerprint đổi khi có bài viết mới
+CREATE TABLE IF NOT EXISTS social_verdicts (
+    angle_key   TEXT PRIMARY KEY,
+    fingerprint TEXT NOT NULL,
+    result      TEXT NOT NULL,
+    created_on  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS domains (
     domain         TEXT PRIMARY KEY,
     registered_at  TEXT,

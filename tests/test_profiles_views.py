@@ -20,7 +20,9 @@ AS_OF = date(2026, 11, 16)
 # ------------------------------------------------------------------ hồ sơ
 def test_default_profiles_parse_and_roundtrip(tmp_path):
     profiles, ev = pf.load(tmp_path / "p.yaml")            # tạo file mặc định
-    assert [p.key for p in profiles] == ["quick", "long"] and ev.gates
+    assert [p.key for p in profiles] == ["quick", "long", "angle_now", "angle_durable"] and ev.gates
+    assert [p.key for p in pf.for_kind(profiles, "angle")] == ["angle_now", "angle_durable"]
+    assert [p.key for p in pf.for_kind(profiles, "product")] == ["quick", "long"]
     pf.save(tmp_path / "p.yaml", profiles, ev)
     again, ev2 = pf.load(tmp_path / "p.yaml")
     assert [(p.key, len(p.gates), len(p.weights)) for p in again] == [(p.key, len(p.gates), len(p.weights))
@@ -214,3 +216,25 @@ def test_editor_form_roundtrip_and_validation(tmp_path):
         parse_form(form, profiles)
     html = render_editor(profiles, ev, "tok", "x")
     assert 'name="long.strong"' in html and "Máy xay creative" in html
+
+
+def test_angle_view_uses_persona_and_social_data(demo_reports, tmp_path):
+    from winfinder import personas_pipeline
+    from winfinder.angles_pipeline import load_doc
+
+    cfg = load_config(ROOT / "config.yaml")
+    cfg.trends.geos = ["US"]
+    res = personas_pipeline.run_personas(db.connect(":memory:"), cfg, load_doc(demo_reports), AS_OF,
+                                         provider=demo.DemoTrendsProvider(AS_OF),
+                                         sources=[demo.DemoSocialSource(AS_OF)], verifier=demo.DemoVerifier())
+    personas_pipeline.write(res, demo_reports, AS_OF)
+    m = views.build(demo_reports, tmp_path / "p.yaml")
+    a = next(x for x in m.angles if x.name == "Quần áo đen sạch lông")
+    assert a.metrics["social_verdict"] == "confirmed" and a.metrics["persona_need_label"] == "rising"
+    assert [e.profile for e in a.evals] == ["angle_now", "angle_durable"]      # hồ sơ riêng cho angle
+    now = a.evals[0]
+    assert now.coverage == 1.0 and now.decision == "strong"
+    conf = next(x for x in m.angles if x.name == "Tự tin, dáng đẹp")
+    assert conf.evals[0].decision == "blocked"                                   # không tìm thấy persona thật
+    html = views.render_angles(m)
+    assert "Xác thực" in html and "Lời khách hàng" in html and "reddit.com" in html

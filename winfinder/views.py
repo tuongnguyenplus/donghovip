@@ -60,12 +60,19 @@ class Entity:
         return b.score if b else max((e.score for e in self.evals), default=0.0) - 100
 
     def rank(self, profile: str | None) -> tuple:
-        """Xếp: hợp trước, chưa hợp sau, không đạt điều kiện cuối; cùng nhóm thì theo điểm."""
+        """Xếp: hợp (đủ dữ liệu) → hợp nhưng còn điều kiện chưa rõ → chưa hợp → không đạt; cùng nhóm theo điểm."""
+        order = {"strong": 0, "fit": 0, "weak": 2, "blocked": 3}
+
+        def key(e: pf.Evaluation) -> tuple:
+            o = order[e.decision]
+            if o == 0 and e.unknown_gates:
+                o = 1
+            return (o, -e.score)
+
         if not profile:
-            return (-self.score(None),)
+            return min((key(e) for e in self.evals), default=(4, 0))
         e = next((x for x in self.evals if x.profile == profile), None)
-        order = {"strong": 0, "fit": 0, "weak": 1, "blocked": 2}
-        return (order[e.decision], -e.score) if e else (3, 0)
+        return key(e) if e else (4, 0)
 
 
 @dataclass
@@ -181,13 +188,14 @@ def build(report_dir: str | Path, profiles_path: str | Path, labels: dict | None
     latest = _read(report_dir, "latest.json")
     winners = _read(report_dir, "winners.json")
     angles_doc = _read(report_dir, "angles.json")
+    personas = {x["key"]: x for x in _read(report_dir, "personas.json").get("personas", [])}
     labels = labels or {}
     stores_raw = {s["key"]: s for s in latest.get("stores", [])}
     linked = {x["key"]: x for x in winners.get("stores", [])}
     angles_by_product = {p["product"]: p for p in angles_doc.get("products", [])}
 
     def evaluate(ent: Entity) -> Entity:
-        ent.evals = [pf.evaluate(p, ent.metrics) for p in profiles]
+        ent.evals = [pf.evaluate(p, ent.metrics) for p in pf.for_kind(profiles, ent.kind)]
         ent.info["label"] = labels.get((ent.kind, ent.key))
         return ent
 
@@ -243,6 +251,18 @@ def build(report_dir: str | Path, profiles_path: str | Path, labels: dict | None
                 "survival_30": a.get("survival_30"), "alive_30": a.get("alive_30"),
                 "active_now": (a.get("history") or [None])[-1],
             }
+            per = personas.get(f"{prod}|{d['id']}") or {}
+            ver, soc, need = per.get("verification") or {}, per.get("social") or {}, per.get("need") or {}
+            m.update({
+                "persona_need_label": need.get("label"), "persona_need_score": per.get("need_score"),
+                "persona_need_yoy": need.get("yoy"),
+                "social_verdict": ver.get("verdict") if ver.get("verdict") in pf.SOCIAL_VERDICTS else None,
+                "social_score": per.get("social_score"),
+                "social_volume": (round(soc["volume_90"] * (ver.get("relevant_share") if ver.get("relevant_share")
+                                                            is not None else soc.get("match_share", 0)))
+                                  if soc else None),
+                "social_growth": soc.get("growth") if soc else None,
+            })
             if pe:  # nhu cầu và bằng chứng của sản phẩm áp cho angle
                 for k in ("trend_label", "trend_score", "trend_yoy", "trend_growth", "seasonal_amplitude",
                           "in_season", "need_label", "need_score", "evidence_stores", "competitors"):
@@ -252,9 +272,10 @@ def build(report_dir: str | Path, profiles_path: str | Path, labels: dict | None
                 "pain": d["pain_point"], "promise": d["promise"], "hook": d["hook_type"],
                 "status_vi": a["status_vi"], "history": a.get("history") or [], "stores": a.get("stores") or [],
                 "sample": (a.get("samples") or [""])[0],
+                "pain_keywords": d.get("pain_keywords") or [], "persona_result": per,
             })))
 
-    order = lambda e: -e.score(None)  # noqa: E731
+    order = lambda e: e.rank(None)  # noqa: E731
     return Model(latest.get("as_of") or winners.get("as_of") or str(date.today()),
                  sorted(products, key=order), sorted(stores, key=order), sorted(angles, key=order),
                  profiles, evidence)
@@ -352,7 +373,7 @@ def _tools(model: Model, current: str | None, page_name: str, interactive: bool)
 
 
 def _sorted(items: list[Entity], sort: str | None) -> list[Entity]:
-    return sorted(items, key=lambda e: e.rank(sort)) if sort else items
+    return sorted(items, key=lambda e: e.rank(sort))
 
 
 def _store_link(model: Model, key: str) -> str:
@@ -422,6 +443,51 @@ def render_stores(model: Model, token: str | None = None, sort: str | None = Non
     return page("Store", body, active="stores.html")
 
 
+SOCIAL_COLORS = {"confirmed": "#1a7f4b", "partial": "#a86b00", "weak": "#8a8a85", "not_found": "#c0392b",
+                 "unverified": "#8a8a85"}
+
+
+def _persona_need(a: Entity) -> str:
+    per = a.info.get("persona_result") or {}
+    need = per.get("need") or {}
+    kws = ", ".join(a.info.get("pain_keywords") or [])
+    if not need:
+        return f'<div class="sub">nhu cầu persona: chưa đo{(" (" + _e(kws) + ")") if kws else ""}</div>'
+    return (f'<div class="sub">nhu cầu persona “{_e(kws)}”: <b>{_e(need.get("label_vi"))}</b>'
+            f' · {pf.METRICS["persona_need_yoy"].show(need.get("yoy"))} so cùng kỳ</div>')
+
+
+def _social(a: Entity) -> str:
+    per = a.info.get("persona_result") or {}
+    ver, soc = per.get("verification") or {}, per.get("social") or {}
+    if not ver:
+        return '<span class="muted">chưa xác minh — chạy bước Persona</span>'
+    v = ver.get("verdict", "unverified")
+    head = (f'<span class="lbl" style="background:{SOCIAL_COLORS.get(v, "#666")}">{_e(ver.get("verdict_vi", v).split(" — ")[0])}'
+            f'</span> <span class="sub">{"Claude đọc bài" if ver.get("method") == "claude" else "chỉ đếm từ khoá"}'
+            f'{" · tin cậy " + _e(ver.get("confidence")) if ver.get("method") == "claude" else ""}</span>')
+    nums = ""
+    if soc:
+        comm = ", ".join(f"{c}" for c, _ in (soc.get("communities") or [])[:3])
+        nums = (f'<div class="sub">{soc.get("volume_90", 0)} bài / 90 ngày · đà {soc.get("growth") or "–"}× · '
+                f'{_e(", ".join(f"{k} {n}" for k, n in (soc.get("by_source") or {}).items()))}'
+                f'{(" · " + _e(comm)) if comm else ""}</div>')
+    quotes = "".join(
+        f'<li>“{_e(e["quote"])}” <a class="sub" href="{_e(e["url"])}" target="_blank" rel="noopener">'
+        f'{_e(e.get("source"))}{(" r/" + _e(e["community"])) if e.get("source") == "reddit" and e.get("community") else ""}'
+        f' · {_e(e.get("date"))}</a></li>' for e in (ver.get("evidence") or [])[:3])
+    phrases = ", ".join(f"“{_e(x)}”" for x in (ver.get("customer_phrases") or [])[:6])
+    notes = " ".join(x for x in (ver.get("persona_notes"), ver.get("risks")) if x)
+    detail = ""
+    if quotes or phrases or notes or per.get("notes"):
+        detail = (f'<details><summary>Bằng chứng</summary>{("<ul class=evid>" + quotes + "</ul>") if quotes else ""}'
+                  f'{("<div class=sub><b>Lời khách hàng:</b> " + phrases + "</div>") if phrases else ""}'
+                  f'{("<div class=sub>" + _e(notes) + "</div>") if notes else ""}'
+                  f'{("<div class=sub>" + _e("; ".join(per.get("notes") or [])) + "</div>") if per.get("notes") else ""}'
+                  f'</details>')
+    return head + nums + detail
+
+
 def render_angles(model: Model, token: str | None = None, sort: str | None = None) -> str:
     rows = []
     seen_products = set()
@@ -432,18 +498,18 @@ def render_angles(model: Model, token: str | None = None, sort: str | None = Non
         stores = ", ".join(_store_link(model, k) for k in i["stores"][:4])
         rows.append(f"""<tr{anchor_p}><td id="{a.anchor}"><div class="store">{_e(a.name)}</div>
 <div class="sub">{_e(i['hook'])} · <a href="products.html#p-{slug(i['product'])}">{_e(i['generic'])}</a></div>{_label(a, token)}</td>
-<td>{_e(i['persona'])}<div class="sub">{_e(i['pain'])} → {_e(i['promise'])}</div></td>
+<td>{_e(i['persona'])}<div class="sub">{_e(i['pain'])} → {_e(i['promise'])}</div>{_persona_need(a)}</td>
 <td>{_chips(a)}{_why(a)}</td>
-<td>{_spark(i['history'])}<div class="sub">{_e(i['status_vi'])} · {pf.METRICS['angle_share'].show(m.get('angle_share'))} ad đang sống</div></td>
-<td class="sub">{stores}</td>
-<td class="sub" style="max-width:280px">{_e(i['sample'][:160])}</td></tr>""")
+<td>{_spark(i['history'])}<div class="sub">{_e(i['status_vi'])} · {pf.METRICS['angle_share'].show(m.get('angle_share'))} ad đang sống</div>
+<div class="sub">{stores}</div></td>
+<td style="max-width:340px">{_social(a)}</td></tr>""")
     body = (f"<style>{CSS}</style>{_intro(model)}"
-            '<div class="muted">Cơ hội = angle/persona đang được nhiều store dồn ad (ad đang sống tăng) '
-            'trong lúc nhu cầu của sản phẩm/nỗi đau đó đang tăng.</div>'
+            '<div class="muted">Cơ hội = angle/persona đang được nhiều store dồn ad (ad đang sống tăng), nhu cầu của '
+            'chính persona đó đang tăng (Trends theo nỗi đau), và người thật đang nói về nỗi đau này (mạng xã hội).</div>'
             f"{_tools(model, sort, 'opportunities.html', bool(token))}"
-            '<div class="wrap"><table><thead><tr><th>Angle</th><th>Persona · nỗi đau → lời hứa</th>'
-            '<th>Hợp chiến lược nào</th><th>Ad đang sống</th><th>Store</th><th>Ví dụ ad</th></tr></thead>'
-            f'<tbody>{"".join(rows) or "<tr><td colspan=6 class=muted>Chưa có phân tích angle.</td></tr>"}</tbody></table></div>')
+            '<div class="wrap"><table><thead><tr><th>Angle</th><th>Persona · nỗi đau → lời hứa · nhu cầu persona</th>'
+            '<th>Hợp chiến lược nào</th><th>Ad đang sống · store</th><th>Xác minh trên mạng xã hội</th></tr></thead>'
+            f'<tbody>{"".join(rows) or "<tr><td colspan=5 class=muted>Chưa có phân tích angle.</td></tr>"}</tbody></table></div>')
     return page("Cơ hội angle", body, active="opportunities.html")
 
 

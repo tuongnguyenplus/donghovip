@@ -80,6 +80,21 @@ class ExpandConfig:
 
 
 @dataclass
+class PersonasConfig:
+    enabled: bool = True
+    max_products: int = 10        # sản phẩm ứng viên được xét
+    max_angles: int = 4           # angle / sản phẩm (ưu tiên đang lên, mới)
+    trends: bool = True           # Trends cho nhu cầu của từng persona
+    sources: list[str] = field(default_factory=lambda: ["reddit", "youtube"])
+    lookback_days: int = 365
+    refresh_days: int = 7
+    sample_posts: int = 40        # số bài Claude đọc / angle
+    verify: bool = True
+    model: str = "claude-opus-5-5"
+    effort: str = "medium"
+
+
+@dataclass
 class Config:
     database: Path
     report_dir: Path
@@ -100,6 +115,7 @@ class Config:
     durability: DurabilityRules = field(default_factory=DurabilityRules)
     link: LinkConfig = field(default_factory=LinkConfig)
     expand: ExpandConfig = field(default_factory=ExpandConfig)
+    personas: PersonasConfig = field(default_factory=PersonasConfig)
     angles: AnglesConfig = field(default_factory=AnglesConfig)
 
 
@@ -141,6 +157,8 @@ def load_config(path: str | Path) -> Config:
         trends=_load_trends(raw.get("trends") or {}, base, searches),
         link=_load_link(raw.get("link") or {}),
         durability=_load_durability(raw.get("durability") or {}),
+        personas=PersonasConfig(**{k: v for k, v in (raw.get("personas") or {}).items()
+                                   if k in PersonasConfig.__dataclass_fields__}),
         expand=ExpandConfig(**{k: ([c.upper() for c in v] if k == "countries" else v)
                                for k, v in (raw.get("expand") or {}).items()
                                if k in ExpandConfig.__dataclass_fields__}),

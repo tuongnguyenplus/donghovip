@@ -106,6 +106,10 @@ def render_editor(profiles: list[pf.Profile], evidence: pf.EvidenceRule, token: 
  <div><label>Tên hiển thị</label><input type="text" name="{p.key}.label" value="{_e(p.label)}" maxlength="40"></div>
  <div><label>“Rất hợp” khi điểm ≥</label><input type="number" name="{p.key}.strong" value="{p.strong:g}" min="0" max="100"></div>
  <div><label>“Hợp” khi điểm ≥</label><input type="number" name="{p.key}.fit" value="{p.fit:g}" min="0" max="100"></div>
+ <div><label>Áp dụng cho</label><input type="hidden" name="{p.key}.applies_present" value="1">{"".join(
+     f'<label style="display:inline-flex;gap:4px;margin-right:10px;color:var(--fg)"><input type="checkbox" '
+     f'name="{p.key}.applies" value="{k}" {"checked" if k in p.applies_to else ""}> {v}</label>'
+     for k, v in (("product", "Sản phẩm"), ("store", "Store"), ("angle", "Angle")))}</div>
 </div>
 <label>Mô tả</label><input type="text" name="{p.key}.description" value="{_e(p.description)}" maxlength="200">
 <h3 style="font-size:14px;margin:14px 0 4px">Điều kiện bắt buộc</h3>
@@ -188,8 +192,12 @@ def parse_form(form: dict[str, list[str]], current: list[pf.Profile]) -> tuple[l
             raise pf.ProfileError(f"{p.label}: cần 0 ≤ “Hợp” ≤ “Rất hợp” ≤ 100")
         if not weights:
             raise pf.ProfileError(f"{p.label}: cần ít nhất 1 chỉ số có trọng số > 0")
+        applies = ([k for k in form.get(f"{p.key}.applies", []) if k in pf.KINDS]
+                   if f"{p.key}.applies_present" in form else list(p.applies_to))
+        if not applies:
+            raise pf.ProfileError(f"{p.label}: chọn ít nhất một loại để áp dụng (Sản phẩm / Store / Angle)")
         out.append(pf.Profile(p.key, one(f"{p.key}.label") or p.label, one(f"{p.key}.description"),
-                              _parse_gates(form, p.key), weights, strong, fit))
+                              _parse_gates(form, p.key), weights, strong, fit, applies))
     return out, pf.EvidenceRule(_parse_gates(form, "evidence"))
 
 

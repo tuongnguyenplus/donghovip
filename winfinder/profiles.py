@@ -53,6 +53,8 @@ TREND_LABELS = ("rising", "breakout", "seasonal", "stable", "declining", "spike"
 ARCHETYPES = ("scaling", "early", "evergreen", "steady", "testing", "treadmill", "declining", "stopped")
 TRAFFIC = ("confirmed", "organic", "unconfirmed", "flat", "declining", "too_small", "ambiguous", "no_data")
 ANGLE_STATUS = ("rising", "new", "steady", "churn", "declining", "stopped")
+SOCIAL_VERDICTS = ("confirmed", "partial", "weak", "not_found")
+KINDS = ("product", "store", "angle")
 PCT = "{:.0%}"
 
 # mã → tiếng Việt (mã giữ nguyên trong profiles.yaml để ổn định)
@@ -70,6 +72,9 @@ CHOICE_VI: dict[str, dict[str, str]] = {
                      "declining": "Đang giảm", "stopped": "Đã dừng"},
 }
 CHOICE_VI["need_label"] = CHOICE_VI["trend_label"]
+CHOICE_VI["persona_need_label"] = CHOICE_VI["trend_label"]
+CHOICE_VI["social_verdict"] = {"confirmed": "Xác thực", "partial": "Một phần", "weak": "Yếu",
+                               "not_found": "Không tìm thấy"}
 
 METRICS: dict[str, Metric] = {m.key: m for m in [
     # --- Đà tăng & độ bền ad
@@ -114,6 +119,19 @@ METRICS: dict[str, Metric] = {m.key: m for m in [
     Metric("angle_status", "Trạng thái angle", "Angle", kind="category", choices=ANGLE_STATUS),
     Metric("angle_share", "Tỉ trọng ad đang sống của angle", "Angle", norm=lambda x: _clamp(x / 0.5), fmt=PCT),
     Metric("angle_stores", "Số store chạy angle", "Angle", norm=lambda x: _clamp(x / 4), fmt="{:.0f}"),
+    # --- Persona (nhu cầu riêng của angle + xác minh mạng xã hội)
+    Metric("persona_need_label", "Xu hướng nhu cầu của persona", "Persona", kind="category", choices=TREND_LABELS,
+           help="Google Trends cho keyword nỗi đau của chính persona này"),
+    Metric("persona_need_score", "Điểm nhu cầu của persona", "Persona", norm=lambda x: _clamp(x / 100), fmt="{:.0f}"),
+    Metric("persona_need_yoy", "Nhu cầu persona so cùng kỳ", "Persona", norm=lambda x: _clamp((x + 0.2) / 1.2),
+           fmt="{:+.0%}"),
+    Metric("social_verdict", "Xác minh trên mạng xã hội", "Persona", kind="category", choices=SOCIAL_VERDICTS,
+           help="Claude đọc bài viết thật: persona có thật sự nói về nỗi đau này không"),
+    Metric("social_score", "Điểm xác thực mạng xã hội", "Persona", norm=lambda x: _clamp(x / 100), fmt="{:.0f}"),
+    Metric("social_volume", "Bài liên quan (90 ngày)", "Persona", norm=lambda x: _clamp(math.log10(x + 1) / 2),
+           fmt="{:.0f}"),
+    Metric("social_growth", "Đà thảo luận (90 ngày gần / trước)", "Persona", norm=lambda x: _clamp((x - 0.8) / 1.2),
+           fmt="{:.2f}×"),
 ]}
 
 OPS = {">=": "≥", "<=": "≤", "in": "thuộc", "not_in": "không thuộc", "is": "là"}
@@ -152,6 +170,7 @@ class Profile:
     weights: list[Weight] = field(default_factory=list)
     strong: float = 70.0          # điểm ≥ strong và đạt mọi điều kiện → "Rất hợp"
     fit: float = 50.0             # điểm ≥ fit → "Hợp"
+    applies_to: list[str] = field(default_factory=lambda: ["product", "store"])
 
 
 @dataclass
@@ -174,6 +193,7 @@ profiles:
   - key: quick
     label: Đánh nhanh
     description: Bắt trend đang lên — vào sớm, chấp nhận sản phẩm chưa chứng minh độ bền lâu dài.
+    applies_to: [product, store]
     strong: 70
     fit: 50
     gates:
@@ -194,6 +214,7 @@ profiles:
   - key: long
     label: Xây lâu dài
     description: Sản phẩm đã chứng minh có lãi và dễ scale — ad bền, nhu cầu tăng bền vững, không mùa vụ.
+    applies_to: [product, store]
     strong: 70
     fit: 50
     gates:
@@ -212,6 +233,44 @@ profiles:
       - {metric: seasonal_amplitude, weight: 1, prefer: low}
       - {metric: traffic_confirmed, weight: 1}
       - {metric: angle_stores, weight: 1}
+
+  # --- Hồ sơ cho ANGLE: đúng persona, đúng thời điểm, đã xác minh bằng người thật
+  - key: angle_now
+    label: Angle đúng thời điểm
+    description: Angle đang được dồn ad, nhu cầu của chính persona đang tăng, và người thật đang nói về nỗi đau này.
+    applies_to: [angle]
+    strong: 70
+    fit: 50
+    gates:
+      - {metric: angle_status, op: in, value: [rising, new]}
+      - {metric: persona_need_label, op: not_in, value: [declining, spike]}
+      - {metric: social_verdict, op: in, value: [confirmed, partial]}
+    weights:
+      - {metric: active_growth, weight: 2}
+      - {metric: angle_share, weight: 1.5}
+      - {metric: angle_stores, weight: 1.5}
+      - {metric: persona_need_score, weight: 2}
+      - {metric: social_score, weight: 2}
+      - {metric: social_growth, weight: 1.5}
+      - {metric: trend_score, weight: 1}
+
+  - key: angle_durable
+    label: Angle bền
+    description: Angle có ad sống lâu, persona thật và nhu cầu ổn định — nền để xây dài hạn.
+    applies_to: [angle]
+    strong: 70
+    fit: 50
+    gates:
+      - {metric: angle_status, op: not_in, value: [churn, stopped, declining]}
+      - {metric: social_verdict, op: in, value: [confirmed, partial]}
+    weights:
+      - {metric: survival_30, weight: 2.5}
+      - {metric: alive_30, weight: 2}
+      - {metric: social_score, weight: 2}
+      - {metric: social_volume, weight: 1.5}
+      - {metric: persona_need_score, weight: 1.5}
+      - {metric: angle_stores, weight: 1}
+      - {metric: seasonal_amplitude, weight: 1, prefer: low}
 """
 
 
@@ -269,11 +328,21 @@ def _profile(x: dict) -> Profile:
             raise ProfileError("Trọng số không được âm — dùng prefer: low")
         if weight > 0:
             weights.append(Weight(m.key, weight, prefer))
+    applies = [str(k) for k in (x.get("applies_to") or ["product", "store"])]
+    bad = [k for k in applies if k not in KINDS]
+    if bad or not applies:
+        raise ProfileError(f"applies_to không hợp lệ: {bad} (chọn trong {', '.join(KINDS)})")
     return Profile(
         key=key, label=str(x.get("label") or key), description=str(x.get("description") or ""),
         gates=[_gate(g) for g in x.get("gates") or []], weights=weights,
-        strong=float(x.get("strong", 70)), fit=float(x.get("fit", 50)),
+        strong=float(x.get("strong", 70)), fit=float(x.get("fit", 50)), applies_to=applies,
     )
+
+
+def for_kind(profiles: list[Profile], kind: str) -> list[Profile]:
+    """Hồ sơ áp dụng cho loại này; file cũ chưa có hồ sơ nào cho loại này → dùng tất cả (tương thích ngược)."""
+    mine = [p for p in profiles if kind in p.applies_to]
+    return mine or profiles
 
 
 def parse(text: str) -> tuple[list[Profile], EvidenceRule]:

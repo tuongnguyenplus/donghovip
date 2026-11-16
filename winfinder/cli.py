@@ -20,8 +20,8 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from winfinder import (angles_pipeline, angles_report, db, demo, link, link_report, pipeline, report,
-                       trends_pipeline, trends_report, views)
+from winfinder import (angles_pipeline, angles_report, db, demo, link, link_report, personas_pipeline, pipeline,
+                       report, trends_pipeline, trends_report, views)
 from winfinder.analysis.angles import make_angle_analyzer
 from winfinder.expand import expand_stores
 from winfinder.analysis.product_llm import make_extractor
@@ -145,7 +145,16 @@ def cmd_demo(args) -> int:
     print()
     _print_angles(products)
 
+    doc = angles_pipeline.load_doc(out)
+    personas = personas_pipeline.run_personas(
+        conn, cfg, doc, today, provider=demo.DemoTrendsProvider(today), sources=[demo.DemoSocialSource(today)],
+        verifier=demo.DemoVerifier())
+    personas_pipeline.write(personas, out, today)
+    print()
+    _print_personas(personas)
+
     cfg.profiles_file = out / "profiles.yaml"
+    cfg.profiles_file.unlink(missing_ok=True)  # demo luôn dùng hồ sơ mặc định mới nhất
     model = views.build(out, cfg.profiles_file)
     views.write_static(model, out)
     print()
@@ -171,6 +180,28 @@ def _print_angles(products) -> None:
             print(f"   {a.status_vi:14} {a.recent_share * 100:>4.0f}%  {a.angle.name} — {a.angle.persona}")
         for u in p.untapped:
             print(f"   {'chưa khai thác':14}        {u.get('name')} — {u.get('persona')}")
+
+
+def _print_personas(results) -> None:
+    for r in results:
+        v = (r.verification or {}).get("verdict", "–")
+        need = (r.need or {}).get("label_vi", "–")
+        soc = r.social or {}
+        print(f"  {r.angle[:28]:28} nhu cầu persona: {need:22} mạng xã hội: {v:10} "
+              f"{soc.get('volume_90', 0):>3} bài/90 ngày · đà {soc.get('growth') or '–'}×")
+
+
+def cmd_personas(args) -> int:
+    from winfinder.runner import run_scan
+    from winfinder.server import load_env
+
+    load_env(Path(args.config).parent / ".env")
+    cfg = load_config(args.config)
+    res = run_scan(cfg, ["personas", "views"])
+    for step, why in {**res.skipped, **res.failed}.items():
+        print(f"{step}: {why}")
+    print(f"Báo cáo: {cfg.report_dir / 'opportunities.html'}")
+    return 0 if res.ok else 1
 
 
 def _print_views(model) -> None:
@@ -328,6 +359,8 @@ def main(argv: list[str] | None = None) -> int:
     sp.set_defaults(fn=cmd_link)
     sp = sub.add_parser("angles", help="chia angle/persona cho sản phẩm trên trang Ứng viên (Claude)"); common(sp)
     sp.set_defaults(fn=cmd_angles)
+    sp = sub.add_parser("personas", help="nhu cầu riêng của persona + xác minh angle trên mạng xã hội"); common(sp)
+    sp.set_defaults(fn=cmd_personas)
     sp = sub.add_parser("views", help="chấm theo hồ sơ chiến lược → products/stores/opportunities.html"); common(sp)
     sp.set_defaults(fn=cmd_views)
     sp = sub.add_parser("serve", help="mở giao diện web: quản lý ngách, quét, xem báo cáo"); common(sp)
@@ -337,7 +370,7 @@ def main(argv: list[str] | None = None) -> int:
     sp.set_defaults(fn=cmd_serve)
     sp = sub.add_parser("scan", help="quét đầy đủ (Ad Library → Trends → Ứng viên → Angle)"); common(sp)
     sp.add_argument("--niche", help="chỉ quét một ngách")
-    sp.add_argument("--steps", nargs="+", choices=["collect", "trends", "link", "angles", "views"])
+    sp.add_argument("--steps", nargs="+", choices=["collect", "trends", "link", "angles", "personas", "views"])
     sp.set_defaults(fn=cmd_scan)
     sp = sub.add_parser("demo", help="chạy thử với dữ liệu giả lập"); common(sp)
     sp.add_argument("--out", default="demo_out"); sp.set_defaults(fn=cmd_demo)

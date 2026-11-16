@@ -37,6 +37,9 @@ KEYS = {
     "META_AD_LIBRARY_TOKEN": "Meta Ad Library — bắt buộc để lấy ad",
     "ANTHROPIC_API_KEY": "Claude — hiểu sản phẩm, phân tích angle",
     "SERPAPI_API_KEY": "SerpApi — Google Trends ổn định (không có: gọi Google trực tiếp)",
+    "REDDIT_CLIENT_ID": "Reddit — xác minh persona (tạo app loại “script” ở reddit.com/prefs/apps)",
+    "REDDIT_CLIENT_SECRET": "Reddit — secret của app trên",
+    "YOUTUBE_API_KEY": "YouTube Data API — video + bình luận để xác minh persona",
 }
 REPORT_RE = re.compile(r"^/([a-z_]+\.(?:html|json))$")
 

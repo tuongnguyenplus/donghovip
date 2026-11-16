@@ -85,3 +85,10 @@ def load_linked(report_dir) -> list[dict]:
     if not p.exists():
         return []
     return json.loads(p.read_text(encoding="utf-8")).get("stores", [])
+
+
+def load_doc(report_dir) -> dict:
+    from pathlib import Path
+
+    p = Path(report_dir) / "angles.json"
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}

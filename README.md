@@ -12,9 +12,34 @@ Tìm **store / sản phẩm / angle đang vào phase scale**, tức là đang t�
 
 > **Giới hạn dữ liệu:** Ad Library API chỉ trả quảng cáo thương mại **phân phối ở EU**. Ad chỉ chạy ở US thì không lấy được qua API. Store US đã scale thường chạy cả IE, NL, DK, SE (nơi ad tiếng Anh phổ biến), nên tool dùng các nước này làm proxy.
 
+## Persona: nhu cầu riêng + xác minh trên mạng xã hội
+
+Winning product chỉ là một dạng của **angle/persona win mang tính thời điểm**. Vì vậy mỗi angle được kiểm tra thêm 2 thứ (`winfinder personas`, cấu hình ở `config.yaml → personas`):
+
+1. **Nhu cầu của chính persona** (Google Trends). Khi phân tích angle, Claude rút thêm keyword tiếng Anh mà persona đó search về nỗi đau của họ. Ví dụ angle "Đau lưng dân văn phòng" có keyword "back pain from sitting", khác với nhu cầu của sản phẩm "posture corrector". Một sản phẩm có thể đang tăng trong khi nhu cầu của một persona cụ thể đang giảm.
+2. **Xác minh bằng bài viết thật.** Tool tìm bài theo cụm từ persona hay viết (vd "desk job ruined my posture"), đo khối lượng 90 ngày gần nhất so với 90 ngày trước đó và các cộng đồng đang nói về chủ đề. Sau đó Claude đọc tối đa 40 bài và kết luận:
+   - **Xác thực:** persona thật, nói rõ về nỗi đau này.
+   - **Một phần:** có người nói, nhưng persona hoặc nỗi đau lệch so với ad.
+   - **Yếu**, hoặc **Không tìm thấy**.
+
+   Kèm theo là **trích dẫn nguyên văn có link về bài gốc**. Trích dẫn không có thật trong bài sẽ bị loại. Claude cũng ghi lại **cụm từ khách hàng thật sự dùng**, dùng được làm hook, và rủi ro của angle. Search ra nhiều bài chưa chắc đã có persona thật: bài quảng cáo, review hay spam bị loại.
+
+| Nguồn | Trạng thái | Cần |
+|---|---|---|
+| Reddit | ✅ API chính thức | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` (tạo app loại "script" tại reddit.com/prefs/apps) |
+| YouTube (video + bình luận) | ✅ API chính thức | `YOUTUBE_API_KEY` (Google Cloud → YouTube Data API v3) |
+| TikTok / Instagram / Facebook | ⏳ qua connector | Không có API tìm kiếm công khai cho mục đích này: TikTok Research API chỉ cho học thuật, Instagram chỉ tìm theo hashtag và cần Meta duyệt app, Facebook group không có API. Sẽ nối qua dịch vụ bên thứ ba |
+
+Không có key Claude thì tool chỉ đếm bài có chứa cụm từ của nỗi đau, **không bao giờ kết luận "Xác thực"**, và ghi rõ là chưa được Claude đọc.
+Bài viết được cache 7 ngày. Claude chỉ được gọi lại khi có bài mới.
+
+**Hồ sơ riêng cho angle** (`applies_to: [angle]`):
+- **Angle đúng thời điểm:** angle đang lên hoặc mới xuất hiện, nhu cầu của persona không giảm, persona đã được xác thực. Trọng số cao cho đà tăng ad, nhu cầu persona, điểm xác thực và đà thảo luận.
+- **Angle bền:** ad của angle sống lâu, persona được xác thực, nhu cầu ổn định.
+
 ## Định nghĩa winning: hồ sơ chiến lược (`profiles.yaml`)
 
-Mỗi sản phẩm, store và angle được chấm theo **mọi hồ sơ cùng lúc**, nên tool cho biết nó hợp chiến lược nào. Có sẵn 2 hồ sơ mẫu, sửa được trên giao diện (`winfinder serve` → **Hồ sơ**), nhân bản hoặc tạo thêm:
+Mỗi sản phẩm, store và angle được chấm theo **mọi hồ sơ áp dụng cho nó** (`applies_to`) cùng lúc, nên tool cho biết nó hợp chiến lược nào. Có sẵn 2 hồ sơ mẫu, sửa được trên giao diện (`winfinder serve` → **Hồ sơ**), nhân bản hoặc tạo thêm:
 
 | | Đánh nhanh | Xây lâu dài |
 |---|---|---|
@@ -199,6 +224,7 @@ winfinder run                       # collect → enrich → analyze → reports
 winfinder analyze --enrich          # chấm lại từ DB hiện có
 winfinder link                      # store → keyword sản phẩm → Trends → reports/winners.html
 winfinder angles                    # angle/persona của từng sản phẩm → reports/angles.html
+winfinder personas                  # nhu cầu persona + xác minh trên Reddit/YouTube → personas.json
 winfinder views                     # chấm theo hồ sơ → products.html, stores.html, opportunities.html
 ```
 
@@ -207,6 +233,7 @@ winfinder views                     # chấm theo hồ sơ → products.html, st
 1. Tạo token: vào developers.facebook.com, tạo app, hoàn tất xác minh danh tính, rồi lấy access token có quyền truy cập Ad Library API.
 2. Lưu token vào repo: **Settings → Secrets and variables → Actions → New secret**, đặt tên `META_AD_LIBRARY_TOKEN`.
 3. (Tuỳ chọn) Thêm secret `SERPAPI_API_KEY` cho Trends. Không có thì workflow thử provider `direct`.
+   (Nên có) `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET`, `YOUTUBE_API_KEY` để xác minh persona trên mạng xã hội.
    (Nên có) Thêm secret `ANTHROPIC_API_KEY` để Claude đọc trang sản phẩm. Không có thì dùng heuristic, kém chính xác hơn.
 4. Workflow **Weekly scan** chạy mỗi thứ Hai (hoặc bấm *Run workflow* để chạy tay). Lịch sử được lưu trong `data/winfinder.db`, báo cáo trong `reports/`, và cả hai được commit ngược lại vào repo.
 
@@ -241,6 +268,9 @@ winfinder/
   profiles.py            hồ sơ chiến lược: danh mục chỉ số, điều kiện, trọng số, đánh giá có giải thích
   profiles_ui.py         trình sửa hồ sơ + trang hiệu chỉnh
   views.py               3 góc nhìn Sản phẩm ↔ Store ↔ Cơ hội angle
+  sources/social.py      Reddit, YouTube (video + bình luận); chỗ cắm TikTok/Instagram/Facebook
+  analysis/social.py     khối lượng/đà thảo luận, Claude xác minh persona (trích dẫn, lời khách hàng)
+  personas_pipeline.py   nhu cầu riêng của persona (Trends) + xác minh, có cache
   runner.py              một lần quét đầy đủ, dùng chung cho web và dòng lệnh
   server.py              giao diện web `winfinder serve`
   cli.py

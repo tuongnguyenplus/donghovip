@@ -12,7 +12,9 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 
 from winfinder import angles_pipeline, angles_report, db, link, link_report, pipeline, report
-from winfinder import trends_pipeline, trends_report, views
+from winfinder import personas_pipeline, trends_pipeline, trends_report, views
+from winfinder.analysis.social import ClaudeVerifier
+from winfinder.sources.social import make_sources
 from winfinder.analysis.angles import make_angle_analyzer
 from winfinder.analysis.product_llm import make_extractor
 from winfinder.analysis.scoring import analyze
@@ -25,12 +27,13 @@ from winfinder.sources.trends import TrendsError
 
 log = logging.getLogger("winfinder.scan")
 
-STEPS = ["collect", "trends", "link", "angles", "views"]
+STEPS = ["collect", "trends", "link", "angles", "personas", "views"]
 STEP_LABELS = {
     "collect": "Lấy ad từ Ad Library + chấm điểm store",
     "trends": "Google Trends cho các ngách",
     "link": "Ứng viên: hiểu sản phẩm, nhu cầu, traffic",
     "angles": "Angle / persona",
+    "personas": "Persona: nhu cầu riêng + xác minh trên mạng xã hội",
     "views": "Chấm theo hồ sơ chiến lược (Sản phẩm / Store / Cơ hội angle)",
 }
 
@@ -152,6 +155,28 @@ def run_scan(cfg: Config, steps: list[str] | None = None, today: date | None = N
                             "" if analyzer else "chưa có ANTHROPIC_API_KEY — chỉ hiện kết quả đã lưu")
         return None if analyzer else "chưa có ANTHROPIC_API_KEY"
 
+    def personas_step():
+        if not cfg.personas.enabled:
+            return "đã tắt trong config"
+        doc = angles_pipeline.load_doc(cfg.report_dir)
+        if not doc.get("products"):
+            return "chưa có phân tích angle"
+        provider = None
+        try:
+            provider = _trends_provider(cfg) if cfg.personas.trends else None
+        except TrendsError as exc:
+            log.warning("Trends cho persona: %s", exc)
+        sources, skipped = make_sources(cfg.personas.sources, dict(os.environ))
+        verifier = None
+        if cfg.personas.verify and (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+            verifier = ClaudeVerifier(cfg.personas.model, cfg.personas.effort)
+        res = personas_pipeline.run_personas(conn, cfg, doc, today, provider=provider, sources=sources,
+                                             verifier=verifier, skipped_sources=skipped)
+        personas_pipeline.write(res, cfg.report_dir, today)
+        if not sources:
+            return "chưa có nguồn mạng xã hội (REDDIT_CLIENT_ID/SECRET hoặc YOUTUBE_API_KEY) — chỉ đo nhu cầu persona"
+        return None
+
     def views_step():
         model = views.build(cfg.report_dir, cfg.profiles_file, db.get_labels(conn))
         views.write_static(model, cfg.report_dir)
@@ -163,5 +188,6 @@ def run_scan(cfg: Config, steps: list[str] | None = None, today: date | None = N
     step("trends", trends)
     step("link", link_step)
     step("angles", angles)
+    step("personas", personas_step)
     step("views", views_step)
     return res

@@ -12,6 +12,7 @@ profiles:
   - key: quick
     label: Đánh nhanh
     description: Bắt trend đang lên — vào sớm, chấp nhận sản phẩm chưa chứng minh độ bền lâu dài.
+    applies_to: [product, store]
     strong: 70
     fit: 50
     gates:
@@ -32,6 +33,7 @@ profiles:
   - key: long
     label: Xây lâu dài
     description: Sản phẩm đã chứng minh có lãi và dễ scale — ad bền, nhu cầu tăng bền vững, không mùa vụ.
+    applies_to: [product, store]
     strong: 70
     fit: 50
     gates:
@@ -50,3 +52,41 @@ profiles:
       - {metric: seasonal_amplitude, weight: 1, prefer: low}
       - {metric: traffic_confirmed, weight: 1}
       - {metric: angle_stores, weight: 1}
+
+  # --- Hồ sơ cho ANGLE: đúng persona, đúng thời điểm, đã xác minh bằng người thật
+  - key: angle_now
+    label: Angle đúng thời điểm
+    description: Angle đang được dồn ad, nhu cầu của chính persona đang tăng, và người thật đang nói về nỗi đau này.
+    applies_to: [angle]
+    strong: 70
+    fit: 50
+    gates:
+      - {metric: angle_status, op: in, value: [rising, new]}
+      - {metric: persona_need_label, op: not_in, value: [declining, spike]}
+      - {metric: social_verdict, op: in, value: [confirmed, partial]}
+    weights:
+      - {metric: active_growth, weight: 2}
+      - {metric: angle_share, weight: 1.5}
+      - {metric: angle_stores, weight: 1.5}
+      - {metric: persona_need_score, weight: 2}
+      - {metric: social_score, weight: 2}
+      - {metric: social_growth, weight: 1.5}
+      - {metric: trend_score, weight: 1}
+
+  - key: angle_durable
+    label: Angle bền
+    description: Angle có ad sống lâu, persona thật và nhu cầu ổn định — nền để xây dài hạn.
+    applies_to: [angle]
+    strong: 70
+    fit: 50
+    gates:
+      - {metric: angle_status, op: not_in, value: [churn, stopped, declining]}
+      - {metric: social_verdict, op: in, value: [confirmed, partial]}
+    weights:
+      - {metric: survival_30, weight: 2.5}
+      - {metric: alive_30, weight: 2}
+      - {metric: social_score, weight: 2}
+      - {metric: social_volume, weight: 1.5}
+      - {metric: persona_need_score, weight: 1.5}
+      - {metric: angle_stores, weight: 1}
+      - {metric: seasonal_amplitude, weight: 1, prefer: low}

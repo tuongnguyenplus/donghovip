@@ -120,6 +120,20 @@ angles:
   min_ads: 4            # cần ít nhất N nội dung ad khác nhau
   max_products: 15      # chỉ phân tích N sản phẩm điểm ứng viên cao nhất
 
+# Persona: nhu cầu riêng của từng angle (Trends) + xác minh trên mạng xã hội
+personas:
+  enabled: true
+  max_products: 10
+  max_angles: 4          # angle / sản phẩm (ưu tiên đang lên, mới xuất hiện)
+  trends: true           # Trends cho keyword nỗi đau của persona
+  sources: [reddit, youtube]   # tiktok / instagram / facebook: cần connector bên thứ ba
+  lookback_days: 365
+  refresh_days: 7        # không tìm lại cùng truy vấn trong N ngày
+  sample_posts: 40       # số bài Claude đọc để xác minh mỗi angle
+  verify: true
+  model: claude-opus-5-5
+  effort: medium
+
 weights:
   momentum: 0.25     # ad đang sống tăng
   durability: 0.30   # tỉ lệ sống sót ≥ 30 ngày + số ad bền đang chạy

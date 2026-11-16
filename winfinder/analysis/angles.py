@@ -50,8 +50,19 @@ SCHEMA = {
                     "pain_point": {"type": "string", "description": "Nỗi đau / mong muốn chạm tới, tiếng Việt"},
                     "promise": {"type": "string", "description": "Lời hứa chính của ad, tiếng Việt"},
                     "hook_type": {"type": "string", "enum": HOOK_TYPES},
+                    "pain_keywords": {
+                        "type": "array", "items": {"type": "string"},
+                        "description": "1-3 Google searches (English, lowercase, no brand) THIS persona types about "
+                                       "THIS pain/desire, e.g. 'back pain from sitting'. Not the product name.",
+                    },
+                    "social_queries": {
+                        "type": "array", "items": {"type": "string"},
+                        "description": "2-4 short phrases (English) this persona would write in a Reddit post or "
+                                       "TikTok caption about the pain, e.g. 'desk job ruined my posture'.",
+                    },
                 },
-                "required": ["id", "name", "persona", "pain_point", "promise", "hook_type"],
+                "required": ["id", "name", "persona", "pain_point", "promise", "hook_type", "pain_keywords",
+                             "social_queries"],
                 "additionalProperties": False,
             },
         },
@@ -96,7 +107,8 @@ Tasks:
 3. Suggest 2-4 promising angles (personas/pains) that none of these ads use yet, realistic for this product.
 
 Write angle names, personas, pains, promises and suggestions in Vietnamese, concise (under 15 words each).
-Quote nothing; describe."""
+Quote nothing; describe. Exception: pain_keywords and social_queries are in English, in the words real people
+from that persona use (they are used to measure demand on Google Trends and to find real posts on social media)."""
 
 
 @dataclass
@@ -117,6 +129,8 @@ class AngleDef:
     pain_point: str
     promise: str
     hook_type: str
+    pain_keywords: list[str] = field(default_factory=list)    # tiếng Anh — đo nhu cầu của persona (Trends)
+    social_queries: list[str] = field(default_factory=list)   # tiếng Anh — tìm bài viết thật trên mạng xã hội
 
 
 @dataclass
@@ -175,8 +189,11 @@ def ad_units(conn: sqlite3.Connection, store_keys: list[str]) -> tuple[list[AdUn
     return units, meta
 
 
+SCHEMA_VERSION = "2"  # đổi khi SCHEMA đổi → phân tích lại (kết quả cũ thiếu trường mới)
+
+
 def fingerprint(product: str, units: list[AdUnit]) -> str:
-    h = hashlib.sha256(product.encode())
+    h = hashlib.sha256((SCHEMA_VERSION + product).encode())
     for u in sorted(units, key=lambda u: u.text):
         h.update(u.text.encode())
     return h.hexdigest()[:16]
@@ -227,7 +244,13 @@ class ClaudeAngleAnalyzer:
 
 
 def parse_result(data: dict, units: list[AdUnit], model: str = "") -> AngleResult:
-    angles = [AngleDef(**{k: a[k] for k in AngleDef.__dataclass_fields__}) for a in data.get("angles", [])]
+    def clean(xs) -> list[str]:
+        return list(dict.fromkeys(" ".join(str(x).lower().split()) for x in xs or [] if str(x).strip()))[:4]
+
+    angles = [AngleDef(**{k: a[k] for k in AngleDef.__dataclass_fields__ if k in a})
+              for a in data.get("angles", [])]
+    for a in angles:
+        a.pain_keywords, a.social_queries = clean(a.pain_keywords), clean(a.social_queries)
     ids = {a.id for a in angles}
     refs = {u.ref for u in units}
     assignments = {x["ad"]: x["angle"] for x in data.get("assignments", []) if x["ad"] in refs and x["angle"] in ids}

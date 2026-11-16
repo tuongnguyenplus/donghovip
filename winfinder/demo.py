@@ -204,6 +204,12 @@ _PATTERN_BY_KEYWORD = {
     "cat hair remover roller": "breakout", "hair remover roller": "breakout",
     "eye bags": "rising", "puffy eyes": "rising", "dark circles": "stable", "back pain": "stable",
     # lượt tìm tên brand
+    # nhu cầu riêng của persona
+    "back pain from sitting": "stable", "desk job back pain": "declining", "gift for mom": "seasonal",
+    "gifts for elderly mom": "seasonal", "how to fix posture": "rising", "hunchback fix": "rising",
+    "remove cat hair from clothes": "rising", "remove pet hair from couch": "stable",
+    "eye bags treatment": "rising", "look younger eyes": "rising", "night shift dark circles": "breakout",
+    "red light therapy benefits": "rising",
     "postureglow": "brand_ramp", "lifteyes": "brand_ramp", "spinealign": "brand_flat",
     "backbuddy": "brand_flat", "starrynight": "brand_old",
 }
@@ -282,6 +288,19 @@ ANGLE_DEFS = {
     "offer": ("Ưu đãi / cam kết hoàn tiền", "Người săn khuyến mãi", "Sợ mua phải hàng kém", "Giảm giá, hoàn tiền 30 ngày",
               "offer"),
 }
+# (keyword nhu cầu cho Trends, cụm tìm trên mạng xã hội) theo angle
+ANGLE_QUERIES = {
+    "desk": (["back pain from sitting", "desk job back pain"], ["desk job back pain", "sitting all day back pain"]),
+    "gift": (["gift for mom", "gifts for elderly mom"], ["gift ideas for my mom", "what to get mom"]),
+    "confidence": (["how to fix posture", "hunchback fix"], ["my posture looks bad in photos", "fix hunchback"]),
+    "black-clothes": (["remove cat hair from clothes"], ["cat hair on black clothes", "cat hair everywhere"]),
+    "couch": (["remove pet hair from couch"], ["pet hair on couch", "dog hair on sofa"]),
+    "younger": (["eye bags treatment", "look younger eyes"], ["eye bags make me look old", "under eye bags"]),
+    "night-shift": (["night shift dark circles"], ["night shift nurse eye bags", "night shift tired eyes"]),
+    "science": (["red light therapy benefits"], ["does red light therapy work"]),
+    "offer": ([], []),
+}
+
 UNTAPPED = {
     "posture": [{"name": "Học sinh ôn thi", "persona": "Phụ huynh có con tuổi teen",
                  "why": "Chưa store nào nhắm phụ huynh lo dáng gù của con"}],
@@ -310,7 +329,7 @@ class DemoAngleAnalyzer:
             key = text_to_key.get(body, "offer")
             ids.setdefault(key, f"A{len(ids) + 1}")
             assignments[u.ref] = ids[key]
-        angles = [AngleDef(aid, *ANGLE_DEFS[key]) for key, aid in ids.items()]
+        angles = [AngleDef(aid, *ANGLE_DEFS[key], *ANGLE_QUERIES.get(key, ([], []))) for key, aid in ids.items()]
         cat = "posture" if "posture" in product else ("eye-care" if "light" in product or "eye" in product else "")
         return AngleResult(angles, assignments, UNTAPPED.get(cat, []), "demo")
 
@@ -387,3 +406,71 @@ def demo_resolver(domain: str):
 
     kind, target, lt = PRESELL.get(domain, ("store", None, None))
     return Resolution(kind, target, lt)
+
+
+# ------------------------------------------------------------------ mạng xã hội giả lập
+# truy vấn → (số bài 90 ngày gần, 90 ngày trước, bài mẫu do đúng persona viết?)
+SOCIAL = {
+    "gift ideas for my mom": (60, 25, True), "what to get mom": (40, 30, True),
+    "desk job back pain": (45, 50, True), "sitting all day back pain": (30, 35, True),
+    "my posture looks bad in photos": (8, 6, False), "fix hunchback": (12, 10, False),
+    "cat hair on black clothes": (35, 12, True), "cat hair everywhere": (40, 20, True),
+    "pet hair on couch": (20, 18, True), "dog hair on sofa": (15, 15, True),
+    "eye bags make me look old": (50, 20, True), "under eye bags": (80, 40, True),
+    "night shift nurse eye bags": (25, 3, True), "night shift tired eyes": (18, 4, True),
+    "does red light therapy work": (30, 28, False),
+}
+_POST_TEXT = {
+    True: ["I've been dealing with {q} for months and nothing helps",
+           "Anyone else struggling with {q}? Need advice",
+           "{q} is ruining my mornings honestly"],
+    False: ["Top 10 products for {q} (sponsored)", "Video: {q} explained by a dermatologist"],
+}
+
+
+class DemoSocialSource:
+    name = "reddit"
+
+    def __init__(self, today: date):
+        self.today = today
+        self.calls = 0
+
+    def search(self, query, since, limit=100):
+        from winfinder.sources.social import SocialPost
+
+        self.calls += 1
+        recent, prev, genuine = SOCIAL.get(query, (0, 0, False))
+        rng = random.Random(zlib.crc32(query.encode()))
+        posts = []
+        for i in range(recent + prev):
+            age = rng.randint(0, 89) if i < recent else rng.randint(90, 179)
+            text = rng.choice(_POST_TEXT[genuine]).format(q=query)
+            posts.append(SocialPost("reddit", f"{zlib.crc32(query.encode())}-{i}", text, text,
+                                    f"https://www.reddit.com/r/demo/{i}", (self.today - timedelta(days=age)).isoformat(),
+                                    rng.randint(1, 300), rng.randint(0, 80),
+                                    rng.choice(["AskWomen", "nursing", "cats", "Posture", "SkincareAddiction"])))
+        return posts
+
+
+class DemoVerifier:
+    """Thay Claude: 'confirmed' khi phần lớn bài do đúng persona viết; trích dẫn lấy nguyên văn từ bài."""
+
+    model = "demo"
+
+    def __init__(self):
+        self.calls = 0
+
+    def verify(self, product, angle, posts):
+        from winfinder.analysis.social import parse_verification
+
+        self.calls += 1
+        genuine = [i for i, p in enumerate(posts, 1) if "sponsored" not in p.text and "explained" not in p.text]
+        share = len(genuine) / len(posts) if posts else 0
+        verdict = "confirmed" if share >= 0.6 and len(genuine) >= 5 else ("partial" if genuine else "not_found")
+        ev = [{"ref": f"p{i}", "quote": posts[i - 1].text[:120], "why": "Người dùng tự kể về nỗi đau này"}
+              for i in genuine[:3]]
+        return parse_verification({
+            "verdict": verdict, "confidence": "medium", "relevant_refs": [f"p{i}" for i in genuine],
+            "evidence": ev, "customer_phrases": list(dict.fromkeys(angle.get("social_queries") or []))[:4],
+            "persona_notes": "Dữ liệu giả lập.", "risks": "" if verdict == "confirmed" else "Phần lớn là bài quảng cáo/review.",
+        }, posts, "demo")
