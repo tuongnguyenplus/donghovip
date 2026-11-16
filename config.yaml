@@ -90,6 +90,13 @@ link:
   max_keywords: 4       # keyword sản phẩm tối đa / store
   autocomplete: false   # mở rộng bằng Autocomplete (thêm request)
   overrides: {}         # đặt tay khi tool rút sai, vd: { postureglow.com: ["posture corrector", "posture brace"] }
+  fetch_pages: true     # đọc trang sản phẩm / trang chủ khi Shopify products.json không đủ thông tin
+  page_refresh_days: 14
+  need_trends: true     # chạy Trends cho cả keyword nhu cầu (vd "eye bags") — biết thị trường gốc có đang lớn không
+  llm:                  # Claude đọc ad + trang sản phẩm để hiểu sản phẩm là gì (cần ANTHROPIC_API_KEY)
+    enabled: true       # không có key → tự dùng heuristic
+    model: claude-opus-5-5
+    effort: low         # trích xuất đơn giản — low là đủ, rẻ và nhanh
 
 weights:
   velocity: 0.35     # độ dốc creative mới / tuần

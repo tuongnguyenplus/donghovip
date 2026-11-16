@@ -46,6 +46,12 @@ class LinkConfig:
     max_keywords: int = 4           # keyword sản phẩm tối đa / store
     autocomplete: bool = False      # mở rộng keyword sản phẩm bằng Autocomplete (tốn request)
     overrides: dict[str, list[str]] = field(default_factory=dict)  # domain → keyword đặt tay
+    fetch_pages: bool = True        # đọc trang sản phẩm / trang chủ khi Shopify không đủ thông tin
+    page_refresh_days: int = 14
+    need_trends: bool = True        # chạy Trends cho keyword nhu cầu (vd 'eye bags') do Claude rút ra
+    llm_enabled: bool = True        # dùng Claude hiểu sản phẩm (cần ANTHROPIC_API_KEY), không có → heuristic
+    llm_model: str = "claude-opus-5-5"
+    llm_effort: str = "low"
 
 
 @dataclass
@@ -117,6 +123,12 @@ def _load_link(x: dict) -> LinkConfig:
         autocomplete=bool(x.get("autocomplete", False)),
         overrides={str(k).lower(): [str(v) for v in (vs if isinstance(vs, list) else [vs])]
                    for k, vs in (x.get("overrides") or {}).items()},
+        fetch_pages=bool(x.get("fetch_pages", True)),
+        page_refresh_days=int(x.get("page_refresh_days", 14)),
+        need_trends=bool(x.get("need_trends", True)),
+        llm_enabled=bool((x.get("llm") or {}).get("enabled", True)),
+        llm_model=str((x.get("llm") or {}).get("model", "claude-opus-5-5")),
+        llm_effort=str((x.get("llm") or {}).get("effort", "low")),
     )
 
 

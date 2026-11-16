@@ -94,6 +94,7 @@ def _demo():
         db.save_domain(conn, d, registered_at=None, first_cert_at=None, is_shopify=True,
                        product_count=len(products), products=products, checked_on=AS_OF)
     cfg.link.min_ad_score = 0
+    cfg.link.fetch_pages = False  # không gọi mạng trong test
     return cfg, conn
 
 

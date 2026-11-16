@@ -1,5 +1,11 @@
-"""Nối Ad Library ↔ Trends: store đang scale → keyword sản phẩm → nhu cầu thị trường → kết luận.
+"""Nối Ad Library ↔ Trends: store đang scale → hiểu sản phẩm → nhu cầu thị trường → kết luận.
 
+Hiểu sản phẩm (theo thứ tự ưu tiên):
+  1. config `link.overrides` (đặt tay)
+  2. Claude đọc ad + trang sản phẩm → tên gọi chung, keyword tìm kiếm, keyword nhu cầu (cần ANTHROPIC_API_KEY)
+  3. heuristic n-gram trên ad + trang sản phẩm (analysis/keywords.py)
+
+Trang sản phẩm: hero product từ Shopify /products.json (mô tả, product_type, tags), không có thì trang chủ.
 Các store bán cùng một sản phẩm (cùng keyword neo) dùng chung một lần gọi Trends.
 """
 
@@ -10,16 +16,21 @@ import logging
 import sqlite3
 from dataclasses import asdict, dataclass, field, replace
 from datetime import date
+from typing import Callable
 
 from winfinder.analysis import keywords as kw
+from winfinder.analysis.product_llm import ProductContext, ProductExtractor, ProductInsight
 from winfinder.analysis.scoring import StoreResult
 from winfinder.config import Config, TrendTopic
+from winfinder.http import make_session
+from winfinder.sources.product_page import PageInfo, choose_hero, fetch_page, page_from_shopify
 from winfinder.sources.trends import TrendsProvider
 from winfinder.trends_pipeline import TopicResult, run_trends
 
 log = logging.getLogger(__name__)
 
 NEUTRAL_TREND_SCORE = 40.0  # khi không có dữ liệu Trends (sản phẩm ít người tìm)
+USABLE = {"rising", "breakout", "seasonal", "stable", "declining", "spike"}
 
 VERDICTS = {
     "strong": "Ứng viên mạnh — store đang scale và nhu cầu thị trường đang lên",
@@ -29,9 +40,11 @@ VERDICTS = {
     "ad_driven": "Ít người tìm kiếm — nhu cầu do ads tạo ra (sản phẩm impulse); dựa vào ad growth và angle",
     "saturated": "Nhu cầu ổn định / bão hòa — chỉ vào nếu có angle khác biệt",
     "risky": "Rủi ro — nhu cầu đang giảm hoặc đã qua đỉnh",
-    "no_keyword": "Không rút được keyword sản phẩm — cần xem tay",
+    "no_keyword": "Không xác định được sản phẩm — cần xem tay",
 }
 VERDICT_ORDER = ["strong", "seasonal_now", "watch", "ad_driven", "saturated", "seasonal_off", "risky", "no_keyword"]
+
+PageFetcher = Callable[[str], "PageInfo | None"]
 
 
 @dataclass
@@ -43,21 +56,29 @@ class LinkedStore:
     ad_score: float
     ad_history: list[int]
     countries: list[str]
-    product: str | None
+    product: str | None                 # keyword neo (tìm kiếm)
     keywords: list[str]
-    keyword_source: str
+    keyword_source: str                 # config | claude | page+ads | shopify+ads | ads
     competitors: int                    # số store khác có ad nhắc tới keyword sản phẩm
     trend: dict | None                  # stats tổng hợp ở thị trường gốc
     trend_score: float | None
     trend_series: list[float] = field(default_factory=list)  # khử mùa vụ, 2 năm gần nhất
     spread: dict = field(default_factory=dict)
+    generic_product: str | None = None  # Claude: sản phẩm thực sự là gì
+    problem_keywords: list[str] = field(default_factory=list)
+    persona: str | None = None
+    confidence: str | None = None
+    page_url: str | None = None
+    need_trend: dict | None = None      # Trends của keyword nhu cầu (eye bags...)
+    need_score: float | None = None
     verdict: str = "no_keyword"
     verdict_text: str = VERDICTS["no_keyword"]
+    verdict_basis: str = "product"      # product | need — kết luận dựa trên trend nào
     win_score: float = 0.0
 
 
 def verdict(scaling: bool, trend: dict | None) -> str:
-    if trend is None or trend["label"] == "insufficient":
+    if trend is None or trend["label"] not in USABLE:
         return "ad_driven"
     label = trend["label"]
     if label in ("rising", "breakout"):
@@ -79,8 +100,9 @@ def win_score(ad_score: float, trend_score: float | None, v: str) -> float:
     return round(score, 1)
 
 
-def store_texts(conn: sqlite3.Connection, s: StoreResult) -> tuple[list[str], list[str], list[str], list[str]]:
-    """(tiêu đề ad, nội dung ad, tên sản phẩm Shopify, keyword ngách) của một store."""
+# ------------------------------------------------------------------ dữ liệu của store
+def store_texts(conn: sqlite3.Connection, s: StoreResult) -> tuple[list[str], list[str], list[dict], list[str]]:
+    """(tiêu đề ad, nội dung ad, sản phẩm Shopify, keyword ngách) của một store."""
     if s.domain:
         rows = conn.execute("SELECT ad_id, titles, bodies FROM ads WHERE domain = ?", (s.domain,)).fetchall()
     else:
@@ -91,11 +113,11 @@ def store_texts(conn: sqlite3.Connection, s: StoreResult) -> tuple[list[str], li
     for r in rows:
         titles += json.loads(r["titles"] or "[]")
         bodies += json.loads(r["bodies"] or "[]")
-    products = []
+    products: list[dict] = []
     if s.domain:
         d = conn.execute("SELECT products FROM domains WHERE domain = ?", (s.domain,)).fetchone()
         if d and d["products"]:
-            products = [p.get("title") or "" for p in json.loads(d["products"])]
+            products = json.loads(d["products"])
     ids = [r["ad_id"] for r in rows]
     ctx: list[str] = []
     for i in range(0, len(ids), 500):
@@ -108,17 +130,62 @@ def store_texts(conn: sqlite3.Connection, s: StoreResult) -> tuple[list[str], li
     return list(dict.fromkeys(titles)), list(dict.fromkeys(bodies)), products, sorted(set(ctx))
 
 
-def count_competitors(conn: sqlite3.Connection, phrase: str, exclude_key: str) -> int:
-    like = f"%{phrase.lower()}%"
-    n = 0
-    for r in conn.execute(
-        "SELECT DISTINCT COALESCE(domain, 'page:' || page_id) AS k FROM ads "
-        "WHERE lower(titles) LIKE ? OR lower(bodies) LIKE ?",
-        (like, like),
-    ):
-        if r["k"] != exclude_key:
-            n += 1
-    return n
+def product_page(
+    conn: sqlite3.Connection, cfg: Config, s: StoreResult, products: list[dict], ad_texts: list[str],
+    fetcher: PageFetcher | None, today: date,
+) -> PageInfo | None:
+    """Trang sản phẩm hero (cache trong DB `product_pages`)."""
+    if not s.domain:
+        return None
+    hero = choose_hero(products, ad_texts)
+    if hero and (hero.get("description") or hero.get("product_type")):
+        return page_from_shopify(s.domain, hero)  # đủ thông tin, không cần tải HTML
+    if not cfg.link.fetch_pages or fetcher is None:
+        return page_from_shopify(s.domain, hero) if hero else None
+    url = f"https://{s.domain}/products/{hero['handle']}" if hero and hero.get("handle") else f"https://{s.domain}/"
+    row = conn.execute("SELECT info, fetched_on FROM product_pages WHERE url = ?", (url,)).fetchone()
+    if row and (today - date.fromisoformat(row["fetched_on"])).days < cfg.link.page_refresh_days:
+        return PageInfo.from_dict(json.loads(row["info"]))
+    page = fetcher(url)
+    if page:
+        conn.execute(
+            "INSERT OR REPLACE INTO product_pages VALUES (?,?,?,?)",
+            (url, s.domain, json.dumps(page.to_dict(), ensure_ascii=False), today.isoformat()),
+        )
+        conn.commit()
+    return page
+
+
+def understand_product(
+    conn: sqlite3.Connection, extractor: ProductExtractor, ctx: ProductContext, key: str, today: date,
+) -> ProductInsight | None:
+    """Gọi Claude; kết quả cache theo dấu vân tay nội dung — ad/trang không đổi thì không gọi lại."""
+    fp = ctx.fingerprint()
+    row = conn.execute("SELECT fingerprint, insight FROM product_insights WHERE store_key = ?", (key,)).fetchone()
+    if row and row["fingerprint"] == fp:
+        return ProductInsight.from_dict(json.loads(row["insight"]))
+    insight = extractor.extract(ctx)
+    if insight:
+        conn.execute(
+            "INSERT OR REPLACE INTO product_insights VALUES (?,?,?,?,?)",
+            (key, fp, json.dumps(insight.to_dict(), ensure_ascii=False), insight.model, today.isoformat()),
+        )
+        conn.commit()
+    return insight
+
+
+def count_competitors(conn: sqlite3.Connection, phrases: list[str], exclude_key: str) -> int:
+    keys: set[str] = set()
+    for phrase in phrases:
+        like = f"%{phrase.lower()}%"
+        for r in conn.execute(
+            "SELECT DISTINCT COALESCE(domain, 'page:' || page_id) AS k FROM ads "
+            "WHERE lower(titles) LIKE ? OR lower(bodies) LIKE ?",
+            (like, like),
+        ):
+            keys.add(r["k"])
+    keys.discard(exclude_key)
+    return len(keys)
 
 
 def select_stores(stores: list[StoreResult], cfg: Config) -> list[StoreResult]:
@@ -127,69 +194,103 @@ def select_stores(stores: list[StoreResult], cfg: Config) -> list[StoreResult]:
     return picked[: lc.top_n]
 
 
+@dataclass
+class _Understood:
+    pk: kw.ProductKeywords
+    insight: ProductInsight | None
+    page: PageInfo | None
+
+
 def link_stores(
     conn: sqlite3.Connection, cfg: Config, stores: list[StoreResult], provider: TrendsProvider, today: date,
+    *, extractor: ProductExtractor | None = None, page_fetcher: PageFetcher | None = None,
 ) -> list[LinkedStore]:
     lc = cfg.link
     chosen = select_stores(stores, cfg)
+    if page_fetcher is None and lc.fetch_pages:
+        session = make_session()
+        page_fetcher = lambda url: fetch_page(session, url)  # noqa: E731
 
-    extracted: dict[str, kw.ProductKeywords] = {}
+    understood: dict[str, _Understood] = {}
     for s in chosen:
-        override = lc.overrides.get(s.domain or "") or lc.overrides.get(s.key)
-        if override:
-            extracted[s.key] = kw.ProductKeywords(override[0], list(override), "config", [])
-            continue
         titles, bodies, products, ctx = store_texts(conn, s)
-        extracted[s.key] = kw.extract(
-            titles, bodies, products, domain=s.domain, page_names=s.page_names,
-            context_keywords=ctx, max_keywords=lc.max_keywords,
-        )
+        override = lc.overrides.get(s.domain or "") or lc.overrides.get(s.key)
+        page = None if override else product_page(conn, cfg, s, products, titles + bodies, page_fetcher, today)
+        insight = None
+        if override:
+            pk = kw.ProductKeywords(override[0], list(override), "config", [])
+        else:
+            if extractor:
+                insight = understand_product(
+                    conn, extractor,
+                    ProductContext(s.domain, s.page_names, titles, bodies, page.to_dict() if page else None, ctx),
+                    s.key, today,
+                )
+            if insight and insight.search_keywords:
+                pk = kw.ProductKeywords(
+                    insight.search_keywords[0], insight.search_keywords[: lc.max_keywords], "claude", []
+                )
+            else:
+                pk = kw.extract(
+                    titles, bodies, [p.get("title") or "" for p in products], domain=s.domain,
+                    page_names=s.page_names, context_keywords=ctx, page=page.to_dict() if page else None,
+                    max_keywords=lc.max_keywords,
+                )
+        understood[s.key] = _Understood(pk, insight, page)
 
-    # một chủ đề Trends cho mỗi keyword neo; gộp keyword phụ của mọi store cùng sản phẩm
+    # chủ đề Trends: 1 cho mỗi sản phẩm (keyword neo) + 1 cho mỗi nhu cầu (keyword vấn đề)
     topics: dict[str, TrendTopic] = {}
-    for pk in extracted.values():
-        if not pk.seed:
-            continue
-        t = topics.setdefault(pk.seed, TrendTopic(name=f"product:{pk.seed}", seeds=[pk.seed]))
-        t.keywords = list(dict.fromkeys([*t.keywords, *(k for k in pk.keywords if k != pk.seed)]))
+
+    def add_topic(name: str, kws: list[str]) -> None:
+        t = topics.setdefault(name, TrendTopic(name=name, seeds=[kws[0]]))
+        t.keywords = list(dict.fromkeys([*t.keywords, *(k for k in kws[1:] if k != kws[0])]))
+
+    for u in understood.values():
+        if u.pk.seed:
+            add_topic(f"product:{u.pk.seed}", u.pk.keywords or [u.pk.seed])
+        if lc.need_trends and u.insight and u.insight.problem_keywords:
+            add_topic(f"need:{u.insight.problem_keywords[0]}", u.insight.problem_keywords)
 
     trend_cfg = replace(cfg, trends=replace(cfg.trends, autocomplete=lc.autocomplete, max_keywords=lc.max_keywords + 2))
     results: dict[str, TopicResult] = {}
     if topics:
         for tr in run_trends(conn, trend_cfg, provider, today, topics=list(topics.values())):
-            results[tr.name.split(":", 1)[1]] = tr
+            results[tr.name] = tr
 
     linked = []
     for s in chosen:
-        pk = extracted[s.key]
-        tr = results.get(pk.seed or "")
-        home = tr.home if tr else None
-        trend = home.stats if home else None
-        v = verdict(s.scaling, trend) if pk.seed else "no_keyword"
-        t_score = home.score if home else None
+        u = understood[s.key]
+        pk, ins = u.pk, u.insight
+        tr = results.get(f"product:{pk.seed}") if pk.seed else None
+        need_tr = results.get(f"need:{ins.problem_keywords[0]}") if ins and ins.problem_keywords else None
+        home, need_home = (tr.home if tr else None), (need_tr.home if need_tr else None)
+        trend, need = (home.stats if home else None), (need_home.stats if need_home else None)
+
+        # sản phẩm quá mới/ít người gọi tên → dựa vào nhu cầu gốc (vd 'eye bags')
+        basis, basis_trend, basis_score = "product", trend, (home.score if home else None)
+        if (trend is None or trend["label"] not in USABLE) and need and need["label"] in USABLE:
+            basis, basis_trend, basis_score = "need", need, need_home.score
+        v = verdict(s.scaling, basis_trend) if pk.seed else "no_keyword"
         linked.append(
             LinkedStore(
-                key=s.key,
-                domain=s.domain,
-                page_names=s.page_names,
-                scaling=s.scaling,
-                ad_score=s.score,
-                ad_history=s.history,
-                countries=s.countries,
-                product=pk.seed,
-                keywords=pk.keywords,
-                keyword_source=pk.source,
-                competitors=count_competitors(conn, pk.seed, s.key) if pk.seed else 0,
-                trend=trend,
-                trend_score=t_score,
+                key=s.key, domain=s.domain, page_names=s.page_names, scaling=s.scaling,
+                ad_score=s.score, ad_history=s.history, countries=s.countries,
+                product=pk.seed, keywords=pk.keywords, keyword_source=pk.source,
+                competitors=count_competitors(conn, pk.keywords[:3] or [pk.seed], s.key) if pk.seed else 0,
+                trend=trend, trend_score=home.score if home else None,
                 trend_series=(home.deseasonalized[-104:] if home else []),
-                spread=tr.spread if tr else {},
-                verdict=v,
-                verdict_text=VERDICTS[v],
-                win_score=win_score(s.score, t_score, v) if pk.seed else 0.0,
+                spread=(need_tr.spread if basis == "need" and need_tr else (tr.spread if tr else {})),
+                generic_product=ins.generic_product if ins else None,
+                problem_keywords=ins.problem_keywords if ins else [],
+                persona=ins.target_persona if ins else None,
+                confidence=ins.confidence if ins else None,
+                page_url=u.page.url if u.page else None,
+                need_trend=need, need_score=need_home.score if need_home else None,
+                verdict=v, verdict_text=VERDICTS[v], verdict_basis=basis,
+                win_score=win_score(s.score, basis_score, v) if pk.seed else 0.0,
             )
         )
-    linked.sort(key=lambda x: (VERDICT_ORDER.index(x.verdict) if x.verdict == "strong" else 1, -x.win_score))
+    linked.sort(key=lambda x: (0 if x.verdict == "strong" else 1, -x.win_score))
     return linked
 
 

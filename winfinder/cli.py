@@ -18,6 +18,7 @@ from datetime import date
 from pathlib import Path
 
 from winfinder import db, demo, link, link_report, pipeline, report, trends_pipeline, trends_report
+from winfinder.analysis.product_llm import make_extractor
 from winfinder.config import TrendTopic
 from winfinder.sources.trends import TrendsError
 from winfinder.analysis.scoring import analyze
@@ -112,7 +113,8 @@ def cmd_demo(args) -> int:
     _print_trends(topics)
 
     cfg.link.min_ad_score = 0
-    linked = link.link_stores(conn, cfg, results, demo.DemoTrendsProvider(today), today)
+    linked = link.link_stores(conn, cfg, results, demo.DemoTrendsProvider(today), today,
+                              extractor=demo.DemoExtractor(), page_fetcher=lambda url: None)
     link_report.write(linked, out, today, "demo")
     print()
     _print_linked(linked)
@@ -125,7 +127,8 @@ def _print_linked(linked) -> None:
     for x in linked:
         ts = f"{x.trend_score:.0f}" if x.trend_score is not None else "–"
         print(f"{x.win_score:>5.0f}  {x.ad_score:>4.0f}  {ts:>5}  {(x.product or '–'):24} "
-              f"{x.domain or x.key} — {x.verdict_text.split(' — ')[0]}")
+              f"{x.domain or x.key} — {x.verdict_text.split(' — ')[0]}"
+              + (" (theo nhu cầu: " + x.problem_keywords[0] + ")" if x.verdict_basis == "need" else ""))
 
 
 def cmd_link(args) -> int:
@@ -145,7 +148,9 @@ def cmd_link(args) -> int:
     if not stores:
         log.error("DB chưa có ad nào — chạy 'winfinder collect' trước")
         return 1
-    linked = link.link_stores(conn, cfg, stores, provider, today)
+    extractor = None if args.no_llm else make_extractor(
+        cfg.link.llm_enabled, cfg.link.llm_model, cfg.link.llm_effort)
+    linked = link.link_stores(conn, cfg, stores, provider, today, extractor=extractor)
     link_report.write(linked, cfg.report_dir, today, provider.name)
     _print_linked(linked)
     print(f"\nBáo cáo: {cfg.report_dir / 'winners.html'}")
@@ -219,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     sp = sub.add_parser("link", help="nối store đang scale với Trends của sản phẩm"); common(sp)
     sp.add_argument("--provider", choices=["serpapi", "direct", "csv"])
     sp.add_argument("--only-scaling", action="store_true", help="chỉ store có nhãn SCALE")
+    sp.add_argument("--no-llm", action="store_true", help="không gọi Claude, chỉ dùng heuristic")
     sp.set_defaults(fn=cmd_link)
     sp = sub.add_parser("demo", help="chạy thử với dữ liệu giả lập"); common(sp)
     sp.add_argument("--out", default="demo_out"); sp.set_defaults(fn=cmd_demo)

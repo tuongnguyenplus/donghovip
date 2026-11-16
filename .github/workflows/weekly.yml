@@ -68,6 +68,7 @@ jobs:
         continue-on-error: true
         env:
           SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # không có → rút keyword bằng heuristic
         run: |
           if [ -n "$SERPAPI_API_KEY" ]; then
             winfinder link --config config.yaml --provider serpapi

@@ -24,9 +24,17 @@ PATTERNS: list[tuple] = [
      ["Heated Dog Vest", "Heated dog vest for winter walks"], ["Heated Dog Vest - USB"]),
     (None, "Groomy Paws", [0] * 9 + [2, 3, 5], ["IE"], 2500, "pet-grooming",
      ["Self Cleaning Slicker Brush", "Slicker brush for long hair dogs"], []),
+    # Tên sản phẩm chỉ là brand — tiêu đề ad không nói sản phẩm là gì
+    ("lifteyes.co", "LiftEyes", [0] * 7 + [1, 2, 3, 4, 7], ["IE", "NL", "DK"], 8000, "eye-care",
+     ["LiftEyes™ — wake up looking 10 years younger", "LiftEyes: 10 minutes a day", "Why everyone loves LiftEyes"],
+     [{"title": "LiftEyes™ Pro", "handle": "lifteyes-pro", "product_type": "Red Light Therapy Glasses",
+       "tags": ["eye bags", "red light therapy", "puffy eyes"],
+       "description": "LiftEyes uses 630nm red light therapy to reduce under eye bags, dark circles and "
+                      "puffiness. Wear the glasses 10 minutes a day. Rechargeable, hands-free."},
+      "Gift Card"]),
 ]
 
-SEARCH_KEYWORD = {"posture": "posture corrector", "pet-grooming": "cat hair remover"}
+SEARCH_KEYWORD = {"posture": "posture corrector", "pet-grooming": "cat hair remover", "eye-care": "eye bags"}
 
 BODIES = [
     "Gift for mom who sits all day 💝 Free shipping today only.",
@@ -69,7 +77,38 @@ def generate(as_of: date, seed: int = 7) -> list[tuple[str, str, dict[str, Any]]
 
 
 def shopify_products() -> dict[str, list[dict]]:
-    return {d: [{"title": t} for t in prods] for d, *_rest, prods in PATTERNS if d and prods}
+    return {
+        d: [p if isinstance(p, dict) else {"title": p} for p in prods]
+        for d, *_rest, prods in PATTERNS if d and prods
+    }
+
+
+# ------------------------------------------------------------------ Claude giả lập
+_INSIGHTS = {
+    "lifteyes.co": dict(generic_product="red light therapy glasses", category="beauty devices",
+                        search_keywords=["red light therapy glasses", "red light eye mask", "red light therapy for eyes"],
+                        problem_keywords=["eye bags", "puffy eyes", "dark circles"],
+                        target_persona="women 35-55 worried about tired-looking eyes", confidence="high"),
+    "postureglow.com": dict(generic_product="posture corrector", category="health",
+                            search_keywords=["posture corrector", "posture brace"],
+                            problem_keywords=["back pain"], target_persona="desk workers", confidence="high"),
+}
+
+
+class DemoExtractor:
+    """Thay Claude trong demo/test: trả kết quả soạn sẵn, None cho store không biết (→ heuristic)."""
+
+    model = "demo"
+
+    def __init__(self):
+        self.calls = 0
+
+    def extract(self, ctx):
+        from winfinder.analysis.product_llm import ProductInsight
+
+        self.calls += 1
+        d = _INSIGHTS.get(ctx.domain or "")
+        return ProductInsight(**d, model="demo") if d else None
 
 
 # ------------------------------------------------------------------ Trends giả lập
@@ -94,6 +133,7 @@ _PATTERN_BY_KEYWORD = {
     "fidget toy": "declining", "pop it fidget": "declining",
     "smart posture corrector": "rising", "heated dog vest": "seasonal", "dog vest": "seasonal",
     "cat hair remover roller": "breakout", "hair remover roller": "breakout",
+    "eye bags": "rising", "puffy eyes": "rising", "dark circles": "stable", "back pain": "stable",
 }
 _GEO_OVERRIDE = {("posture corrector", "DE"): "stable", ("posture brace", "DE"): "stable",
                  ("cat hair remover", "GB"): "stable", ("cat hair remover", "DE"): "stable"}

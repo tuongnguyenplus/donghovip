@@ -63,12 +63,11 @@ Báo cáo nằm ở `reports/trends.html` và `reports/trends.json`.
 
 `winfinder link` lấy top store theo điểm ad, sau đó:
 
-1. **Rút keyword sản phẩm** từ tiêu đề ad, nội dung ad và tên sản phẩm Shopify, không cần LLM:
-   - bỏ tên brand (domain, tên page), số, %, từ marketing, màu và size; gộp số nhiều về số ít;
-   - cộng điểm theo nguồn: sản phẩm Shopify trùng với ad (hero product) ×3, tiêu đề ad ×2, nội dung ad ×1, cụm đứng cuối (thường là danh từ chính) ×1.5, cụm khớp keyword ngách trong `searches` ×2;
-   - bỏ các cụm 2 từ luôn dính với cùng một từ bên cạnh (vd "smart posture", "hair remover" khi luôn là "cat hair remover");
-   - keyword phụ phải có từ chung với keyword neo.
-2. **Chạy Trends cho sản phẩm.** Các store bán cùng sản phẩm dùng chung một lần gọi, và keyword của chúng được gộp lại.
+1. **Hiểu sản phẩm là gì**, kể cả khi tên chỉ là brand (vd "LiftEyes" thực ra là kính ánh sáng đỏ trị bọng mắt):
+   - **Đọc trang sản phẩm:** chọn hero product trong Shopify `/products.json`, tức sản phẩm khớp nhiều từ nhất với ad (tính cả tên brand), rồi lấy mô tả, `product_type` và tags. Không phải Shopify, hoặc thiếu thông tin, thì tải trang sản phẩm/trang chủ và đọc `<title>`, meta description, JSON-LD Product, h1/h2 và phần chữ chính. Cache 14 ngày.
+   - **Claude đọc ad + trang** (`link.llm`, cần `ANTHROPIC_API_KEY`) và trả về structured output gồm: tên gọi chung của sản phẩm, 2–6 keyword người mua tìm trên Google (không chứa brand), keyword nhu cầu/vấn đề (vd "eye bags"), tệp khách và độ tin cậy. Kết quả được cache theo hash nội dung, nên ad và trang không đổi thì không gọi lại. Request dùng `effort: low` và fallback phía server khi bị bộ lọc an toàn từ chối.
+   - **Không có key → heuristic n-gram** trên ad + trang: `product_type` ×4, tên SP ×3, tag ×2, mô tả ×1; keyword neo lấy từ `product_type` nếu có; giữ đúng dạng viết người ta tìm ("eye bags", không phải "eye bag").
+2. **Chạy Trends cho sản phẩm và cho nhu cầu.** Các store bán cùng sản phẩm dùng chung một lần gọi. Khi tên sản phẩm còn quá mới, ít người tìm, mà nhu cầu gốc (vd "eye bags") có dữ liệu, kết luận sẽ dựa trên nhu cầu gốc.
 3. **Đếm đối thủ:** số store khác có ad nhắc tới keyword đó.
 4. **Kết luận**, với điểm tổng = 55% điểm ad + 45% điểm trends:
 
@@ -103,6 +102,7 @@ winfinder link                      # store → keyword sản phẩm → Trends 
 1. Tạo token: vào developers.facebook.com, tạo app, hoàn tất xác minh danh tính, rồi lấy access token có quyền truy cập Ad Library API.
 2. Lưu token vào repo: **Settings → Secrets and variables → Actions → New secret**, đặt tên `META_AD_LIBRARY_TOKEN`.
 3. (Tuỳ chọn) Thêm secret `SERPAPI_API_KEY` cho Trends. Không có thì workflow thử provider `direct`.
+   (Nên có) Thêm secret `ANTHROPIC_API_KEY` để Claude đọc trang sản phẩm. Không có thì dùng heuristic, kém chính xác hơn.
 4. Workflow **Weekly scan** chạy mỗi thứ Hai (hoặc bấm *Run workflow* để chạy tay). Lịch sử được lưu trong `data/winfinder.db`, báo cáo trong `reports/`, và cả hai được commit ngược lại vào repo.
 
 Lưu ý: chạy hằng tuần mới tích lũy được lịch sử reach để đo tốc độ tăng thật.
@@ -119,7 +119,9 @@ winfinder/
   sources/trends.py      SerpApi / Google Trends trực tiếp / CSV, keyword neo, Autocomplete
   trends_pipeline.py     chủ đề × thị trường, cache, ước TAM, mức độ lan rộng
   trends_report.py       báo cáo Trends
-  analysis/keywords.py   rút keyword sản phẩm từ ad + Shopify
+  analysis/keywords.py   rút keyword sản phẩm bằng heuristic (ad + trang sản phẩm)
+  analysis/product_llm.py Claude hiểu sản phẩm: tên gọi chung, keyword tìm kiếm, keyword nhu cầu
+  sources/product_page.py đọc trang sản phẩm (Shopify, JSON-LD, meta, headings), chọn hero product
   link.py                nối store ↔ Trends, kết luận, điểm tổng
   link_report.py         trang Ứng viên
   pipeline.py            collect / enrich

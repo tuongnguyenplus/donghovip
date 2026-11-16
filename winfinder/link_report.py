@@ -25,6 +25,8 @@ CSS = """
 .lbl{display:inline-block;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px}
 .verdict{border-left:3px solid;padding-left:8px;font-size:13px}
 .prod{font-weight:600} .kw{color:var(--muted);font-size:12px}
+.what{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--accent);font-weight:700}
+.need{margin-top:6px;font-size:12px}
 .win{font-size:20px;font-weight:700}
 .legend-v{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px;font-size:12px;color:var(--muted)}
 .legend-v span::before{content:"";display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;background:var(--c)}
@@ -51,18 +53,33 @@ def _row(i: int, x: LinkedStore) -> str:
         )
     else:
         trend_cell = '<span class="muted">không có dữ liệu tìm kiếm</span>'
+    if x.need_trend:
+        n = x.need_trend
+        trend_cell += (
+            f'<div class="need"><span class="muted">Nhu cầu “{_e(x.problem_keywords[0])}”:</span> '
+            f'<span class="lbl" style="background:{BADGE_COLORS.get(n["label"], "#666")}">{_e(n["label_vi"])}</span>'
+            f' <span class="muted">YoY {_pct(n["yoy"])}</span></div>'
+        )
     c = VERDICT_COLORS.get(x.verdict, "#666")
+    src = {"claude": "Claude đọc trang SP", "config": "đặt tay", "page+ads": "trang SP + ad",
+           "shopify+ads": "Shopify + ad", "ads": "chỉ từ ad"}.get(x.keyword_source, x.keyword_source)
+    what = f'<div class="what">{_e(x.generic_product)}</div>' if x.generic_product and x.generic_product != x.product else ""
+    persona = f'<div class="muted">tệp: {_e(x.persona)}</div>' if x.persona else ""
+    page_link = (f' · <a href="{_e(x.page_url)}" target="_blank" rel="noopener">trang SP</a>' if x.page_url else "")
+    low = ' · <b>độ tin cậy thấp</b>' if x.confidence == "low" else ""
+    basis = (f'<div class="muted">dựa trên nhu cầu “{_e(x.problem_keywords[0])}” vì tên sản phẩm còn ít người tìm</div>'
+             if x.verdict_basis == "need" and x.problem_keywords else "")
     return f"""<tr>
 <td class="num">{i}</td>
 <td><div class="store">{link} {badge}</div><div class="muted">{_e(" ".join(x.countries))}</div></td>
-<td><div class="prod">{_e(x.product or "–")}</div>
-<div class="kw">{_e(", ".join(k for k in x.keywords if k != x.product))}</div>
-<div class="muted">nguồn: {_e(x.keyword_source)} · {x.competitors} store khác cùng bán</div></td>
+<td>{what}<div class="prod">{_e(x.product or "–")}</div>
+<div class="kw">{_e(", ".join(k for k in x.keywords if k != x.product))}</div>{persona}
+<div class="muted">nguồn: {_e(src)}{page_link}{low} · {x.competitors} store khác cùng bán</div></td>
 <td class="num win">{x.win_score:.0f}</td>
 <td>{_sparkline(x.ad_history)}<div class="muted">điểm ad {x.ad_score:.0f}</div></td>
 <td>{trend_cell}</td>
 <td class="muted">{_e(x.spread.get("stage", "–"))}</td>
-<td><div class="verdict" style="border-color:{c}">{_e(x.verdict_text)}</div></td>
+<td><div class="verdict" style="border-color:{c}">{_e(x.verdict_text)}</div>{basis}</td>
 </tr>"""
 
 
@@ -79,7 +96,7 @@ def render(linked: list[LinkedStore], as_of: date, provider: str) -> str:
 điểm tổng = 55% điểm ad + 45% điểm trends</div>
 <div class="legend-v">{legend}</div>
 <div class="wrap"><table>
-<thead><tr><th class="num">#</th><th>Store</th><th>Sản phẩm (keyword)</th><th class="num">Điểm tổng</th>
+<thead><tr><th class="num">#</th><th>Store</th><th>Sản phẩm (keyword tìm kiếm)</th><th class="num">Điểm tổng</th>
 <th>Creative mới / tuần</th><th>Nhu cầu tìm kiếm (2 năm, khử mùa vụ)</th><th>Lan rộng</th><th>Kết luận</th></tr></thead>
 <tbody>{"".join(_row(i, x) for i, x in enumerate(linked, 1))}</tbody></table></div>"""
     return page("Ứng viên", body, active="winners.html")

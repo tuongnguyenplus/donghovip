@@ -9,6 +9,7 @@ from typing import Any
 import requests
 
 from winfinder.http import HttpError, get_json
+from winfinder.sources.product_page import html_to_text
 
 log = logging.getLogger(__name__)
 
@@ -57,6 +58,9 @@ def shopify_products(session: requests.Session, domain: str, limit: int = 250) -
     products = []
     for p in data["products"]:
         prices = [float(v["price"]) for v in p.get("variants", []) if v.get("price")]
+        tags = p.get("tags") or []
+        if isinstance(tags, str):
+            tags = [t.strip() for t in tags.split(",") if t.strip()]
         products.append(
             {
                 "title": p.get("title"),
@@ -64,6 +68,10 @@ def shopify_products(session: requests.Session, domain: str, limit: int = 250) -
                 "created_at": (p.get("created_at") or "")[:10] or None,
                 "min_price": min(prices) if prices else None,
                 "max_price": max(prices) if prices else None,
+                "product_type": p.get("product_type") or "",
+                "tags": tags[:20],
+                # mô tả sản phẩm (đã bỏ HTML, cắt ngắn) — nguồn chính để hiểu sản phẩm là gì
+                "description": html_to_text(p.get("body_html"))[:1500],
             }
         )
     return ShopifyInfo(is_shopify=True, product_count=len(products), products=products)

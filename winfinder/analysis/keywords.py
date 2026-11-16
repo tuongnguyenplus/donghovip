@@ -24,7 +24,8 @@ STOPWORDS = {
     "than", "then", "there", "these", "those", "too", "very", "only", "also", "about", "after", "before",
     "day", "days", "minutes", "minute", "seconds", "second", "hour", "hours", "week", "weeks", "time",
     "one", "two", "three", "ever", "still", "never", "now", "today", "tonight", "here", "even", "much",
-    "dont", "don", "t", "s", "im", "ive", "doctors", "people", "everyone", "nobody",
+    "dont", "don", "t", "s", "im", "ive", "doctors", "people", "everyone", "nobody", "without", "within",
+    "while", "because", "over", "under", "just", "again", "back-to", "per", "via", "yet",
 }
 MARKETING = {
     "shop", "buy", "sale", "off", "free", "shipping", "ship", "limited", "offer", "deal", "deals", "discount",
@@ -33,11 +34,11 @@ MARKETING = {
     "discover", "try", "tried", "love", "loved", "hate", "hates", "simple", "easy", "amazing", "viral",
     "trending", "tiktok", "instagram", "facebook", "gift", "gifts", "mom", "dad", "christmas", "black",
     "friday", "cyber", "monday", "holiday", "promo", "code", "coupon", "bundle", "pack", "pcs", "piece",
-    "pieces", "set", "kit", "size", "sizes", "color", "colors", "colour", "white", "pink", "blue", "grey",
-    "gray", "red", "green", "small", "medium", "large", "xl", "xxl", "pro", "plus", "max", "ultra", "mini",
+    "pieces", "set", "kit", "size", "sizes", "color", "colors", "colour", "small", "medium", "large", "xl", "xxl", "pro", "plus", "max", "ultra", "mini",
     "premium", "upgraded", "upgrade", "version", "edition", "original", "authentic", "genuine", "wear",
     "fix", "only", "unisex", "women", "men", "womens", "mens", "kids", "adults", "adult", "stop", "need",
     "want", "finally", "works", "work", "make", "makes", "made", "use", "using", "used", "like", "look",
+    "say", "goodbye", "wake", "feel", "see", "results", "result", "clinically", "proven", "comfortable",
 }
 _TOKEN = re.compile(r"[a-z][a-z'\-]*[a-z]|[a-z]")
 
@@ -63,9 +64,17 @@ def brand_tokens(domain: str | None, page_names: list[str]) -> set[str]:
     return toks
 
 
+# danh từ luôn ở dạng số nhiều — không được cắt 's' (red light glasses ≠ red light glass)
+PLURAL_ONLY = {
+    "glasses", "sunglasses", "goggles", "pants", "shorts", "leggings", "jeans", "trousers", "scissors",
+    "tweezers", "pliers", "headphones", "earphones", "earbuds", "clothes", "pajamas", "overalls", "tights",
+    "binoculars", "news", "series", "species", "lashes", "eyelashes", "suds", "sneakers", "slippers",
+}
+
+
 def singular(tok: str) -> str:
     """Số nhiều tiếng Anh đơn giản: correctors→corrector, brushes→brush, batteries→battery."""
-    if len(tok) <= 3 or tok.endswith(("ss", "us", "is")):
+    if len(tok) <= 3 or tok in PLURAL_ONLY or tok.endswith(("ss", "us", "is")):
         return tok
     if tok.endswith("ies") and len(tok) > 4:
         return tok[:-3] + "y"
@@ -77,11 +86,16 @@ def singular(tok: str) -> str:
 
 
 def segments(text: str, brand: set[str]) -> list[list[str]]:
+    """Đoạn token đã chuẩn hoá (số ít) — dùng để đếm/gộp."""
+    return [[n for n, _ in seg] for seg in segments_raw(text, brand)]
+
+
+def segments_raw(text: str, brand: set[str]) -> list[list[tuple[str, str]]]:
     """Tách text thành các đoạn token sạch; mọi từ bị loại đều làm đứt đoạn."""
     text = re.sub(r"[™®©]", " ", text.lower())
-    out: list[list[str]] = []
+    out: list[list[tuple[str, str]]] = []
     for chunk in re.split(r"[|:;,.!?()\[\]/\"“”—–#+&*]+|\s-\s", text):
-        cur: list[str] = []
+        cur: list[tuple[str, str]] = []
         for raw in re.split(r"[^a-z0-9'\-]+", chunk):
             tok = raw.strip("'-")
             bad = (
@@ -93,7 +107,7 @@ def segments(text: str, brand: set[str]) -> list[list[str]]:
                     out.append(cur)
                 cur = []
             else:
-                cur.append(singular(tok))
+                cur.append((singular(tok), tok))
         if cur:
             out.append(cur)
     return out
@@ -116,6 +130,7 @@ def extract(
     domain: str | None = None,
     page_names: list[str] | None = None,
     context_keywords: list[str] | None = None,
+    page: dict | None = None,
     max_keywords: int = 4,
 ) -> ProductKeywords:
     """context_keywords: keyword ngách đã dùng để tìm ra ad (config `searches`) — cụm khớp được ×2,
@@ -125,15 +140,28 @@ def extract(
     # sản phẩm Shopify chỉ tính khi có từ trùng với tiêu đề ad → sản phẩm đang được chạy ad (hero)
     hero = [p for p in product_titles or [] if {t for seg in segments(p, brand) for t in seg} & ad_tokens]
 
+    page_sources: list[tuple[float, list[str]]] = []
+    if page:  # trang sản phẩm: product_type là tên gọi chung đáng tin nhất, rồi tên SP, tag, mô tả
+        page_sources = [
+            (4.0, [page.get("product_type") or ""]),
+            (3.0, [page.get("product_name") or ""]),
+            (2.0, list(page.get("tags") or [])),
+            (1.0, [page.get("description") or "", *(page.get("headings") or [])]),
+            (1.0, re.split(r"[.!?\n]", page.get("text") or "")[:60]),
+        ]
+
     scores: Counter[str] = Counter()
+    surface: dict[str, Counter[str]] = {}    # dạng viết gốc hay gặp nhất (eye bags, không phải eye bag)
     lefts: dict[str, list[str | None]] = {}   # từ đứng ngay trước mỗi lần xuất hiện
     rights: dict[str, list[str | None]] = {}  # từ đứng ngay sau
-    for weight, texts in ((3.0, hero), (2.0, ad_titles), (1.0, ad_bodies)):
+    for weight, texts in ((3.0, hero), (2.0, ad_titles), (1.0, ad_bodies), *page_sources):
         for text in texts:
             seen: set[str] = set()  # mỗi text chỉ cộng 1 lần cho mỗi n-gram
-            for seg in segments(text, brand):
+            for raw_seg in segments_raw(text, brand):
+                seg = [nrm for nrm, _ in raw_seg]
                 for i, gram, at_end in _ngrams(seg):
                     n = len(gram.split())
+                    surface.setdefault(gram, Counter())[" ".join(o for _, o in raw_seg[i : i + n])] += 1
                     lefts.setdefault(gram, []).append(seg[i - 1] if i > 0 else None)
                     rights.setdefault(gram, []).append(seg[i + n] if i + n < len(seg) else None)
                     if gram in seen:
@@ -160,6 +188,13 @@ def extract(
         if len(g.split()) > 2 or not (bound(lefts.get(g, [None])) or bound(rights.get(g, [None])))
     ]
     seed = ranked[0][0]
+    # product_type là loại sản phẩm do chính store khai báo → keyword neo phải lấy từ đó nếu có
+    # (tránh chọn keyword nhu cầu như 'eye bags' làm tên sản phẩm)
+    if page and page.get("product_type"):
+        type_grams = {g for seg in segments(page["product_type"], brand) for _, g, _ in _ngrams(seg)}
+        typed = [g for g, _ in ranked if g in type_grams]
+        if typed:
+            seed = typed[0]
     picked = [seed]
     for g, _ in ranked:
         if len(picked) >= max_keywords:
@@ -168,4 +203,9 @@ def extract(
         if (g not in picked and set(g.split()) & set(seed.split())
                 and not any(set(g.split()) == set(p.split()) for p in picked)):
             picked.append(g)
-    return ProductKeywords(seed, picked, "shopify+ads" if hero else "ads", ranked[:15])
+    source = "page+ads" if page else ("shopify+ads" if hero else "ads")
+
+    def show(g: str) -> str:
+        return surface[g].most_common(1)[0][0] if surface.get(g) else g
+
+    return ProductKeywords(show(seed), [show(g) for g in picked], source, [(show(g), sc) for g, sc in ranked[:15]])

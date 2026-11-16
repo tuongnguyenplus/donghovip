@@ -74,6 +74,23 @@ CREATE TABLE IF NOT EXISTS keyword_sets (
     fetched_on TEXT NOT NULL
 );
 
+-- trang sản phẩm đã đọc (HTML), cache để không tải lại mỗi tuần
+CREATE TABLE IF NOT EXISTS product_pages (
+    url        TEXT PRIMARY KEY,
+    domain     TEXT NOT NULL,
+    info       TEXT NOT NULL,
+    fetched_on TEXT NOT NULL
+);
+
+-- kết quả Claude phân tích sản phẩm; fingerprint = hash nội dung đầu vào → đổi nội dung mới gọi lại
+CREATE TABLE IF NOT EXISTS product_insights (
+    store_key   TEXT PRIMARY KEY,
+    fingerprint TEXT NOT NULL,
+    insight     TEXT NOT NULL,
+    model       TEXT,
+    created_on  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS domains (
     domain         TEXT PRIMARY KEY,
     registered_at  TEXT,
