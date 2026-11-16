@@ -70,6 +70,8 @@ pip install -e .
 winfinder serve          # mở http://127.0.0.1:8765 trên trình duyệt
 ```
 
+Trên Windows: nhấp đúp **`Chay WinFinder.bat`** trong thư mục tool. Nếu lệnh `winfinder` báo "not recognized" (thư mục Scripts của Python chưa nằm trong PATH), dùng `python -m winfinder.cli serve`.
+
 - **Ngách:** thêm, sửa, xoá, bật/tắt. Mỗi ngách gồm tên, các keyword tìm ad (keyword đầu là keyword chính cho Trends), ngôn ngữ ad và ghi chú. Danh sách lưu trong `niches.yaml`, GitHub Actions cũng đọc file này. Muốn workflow quét ngách mới thì commit `niches.yaml`.
 - **Quét:** quét tất cả ngách đang bật, hoặc bấm "Quét" ở từng ngách. Chọn được bước cần chạy (Ad Library, Trends, Ứng viên, Angle). Log hiện trực tiếp. Bước nào thiếu key sẽ bị bỏ qua và ghi rõ lý do.
 - **Báo cáo:** Ứng viên, Angle, Store, Trends mở ngay trên cùng trang.
