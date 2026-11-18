@@ -140,7 +140,8 @@ def cmd_demo(args) -> int:
     print()
     _print_linked(linked)
 
-    products = angles_pipeline.run_angles(conn, cfg, link.to_dicts(linked), demo.DemoAngleAnalyzer(), today)
+    products = angles_pipeline.run_angles(conn, cfg, link.to_dicts(linked), demo.DemoAngleAnalyzer(), today,
+                                          sources=[demo.DemoSocialSource(today)])
     angles_report.write(products, out, today, "dữ liệu giả lập")
     print()
     _print_angles(products)

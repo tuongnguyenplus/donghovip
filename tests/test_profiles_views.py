@@ -114,7 +114,8 @@ def demo_reports(tmp_path_factory):
     linked = link.link_stores(conn, cfg, stores, demo.DemoTrendsProvider(AS_OF), AS_OF,
                               extractor=demo.DemoExtractor())
     link_report.write(linked, out, AS_OF, "demo")
-    write_angles(run_angles(conn, cfg, link.to_dicts(linked), demo.DemoAngleAnalyzer(), AS_OF), out, AS_OF)
+    write_angles(run_angles(conn, cfg, link.to_dicts(linked), demo.DemoAngleAnalyzer(), AS_OF,
+                            sources=[demo.DemoSocialSource(AS_OF)]), out, AS_OF)
     return out
 
 

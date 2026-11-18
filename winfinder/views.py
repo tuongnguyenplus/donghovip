@@ -257,6 +257,9 @@ def build(report_dir: str | Path, profiles_path: str | Path, labels: dict | None
                 "survival_30": a.get("survival_30"), "alive_30": a.get("alive_30"),
                 "active_now": (a.get("history") or [None])[-1],
             }
+            gap = next((g for g in doc.get("gaps") or [] if g["angle_id"] == d["id"]), {})
+            m.update({"demand_share": gap.get("demand_share"), "gap_opportunity": gap.get("opportunity"),
+                      "gap_verdict": gap.get("verdict")})
             per = personas.get(f"{prod}|{d['id']}") or {}
             ver, soc, need = per.get("verification") or {}, per.get("social") or {}, per.get("need") or {}
             m.update({

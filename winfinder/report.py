@@ -57,7 +57,8 @@ summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:4px}
 .nav{display:flex;flex-wrap:wrap;gap:6px 16px;margin:0 0 16px;font-size:13px} .nav a{text-decoration:none} .nav a.on{font-weight:700;text-decoration:underline}
 """
 
-NAV = [("products.html", "Sản phẩm"), ("stores.html", "Store"), ("opportunities.html", "Cơ hội angle"),
+NAV = [("products.html", "Sản phẩm"), ("gaps.html", "Khoảng trống"), ("language.html", "Lời khách hàng"),
+       ("stores.html", "Store"), ("opportunities.html", "Cơ hội angle"),
        ("winners.html", "Ứng viên"), ("angles.html", "Angle"), ("index.html", "Đo ad"), ("trends.html", "Trends")]
 
 

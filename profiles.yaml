@@ -72,6 +72,7 @@ profiles:
       - {metric: social_score, weight: 2}
       - {metric: social_growth, weight: 1.5}
       - {metric: trend_score, weight: 1}
+      - {metric: gap_opportunity, weight: 2}
 
   - key: angle_durable
     label: Angle bền
@@ -90,3 +91,4 @@ profiles:
       - {metric: persona_need_score, weight: 1.5}
       - {metric: angle_stores, weight: 1}
       - {metric: seasonal_amplitude, weight: 1, prefer: low}
+      - {metric: demand_share, weight: 1.5}

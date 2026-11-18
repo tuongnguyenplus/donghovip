@@ -172,7 +172,10 @@ def run_scan(cfg: Config, steps: list[str] | None = None, today: date | None = N
         if not linked:
             return "chưa có danh sách ứng viên"
         analyzer = make_angle_analyzer(cfg.angles.enabled, cfg.angles.model, cfg.angles.effort)
-        products = angles_pipeline.run_angles(conn, cfg, linked, analyzer, today)
+        sources, skipped = make_sources(cfg.personas.sources, dict(os.environ), apify_client, cfg.apify)
+        for why in skipped:
+            log.info("Kho organic: %s", why)
+        products = angles_pipeline.run_angles(conn, cfg, linked, analyzer, today, sources=sources)
         angles_report.write(products, cfg.report_dir, today,
                             "" if analyzer else "chưa có ANTHROPIC_API_KEY — chỉ hiện kết quả đã lưu")
         return None if analyzer else "chưa có ANTHROPIC_API_KEY"

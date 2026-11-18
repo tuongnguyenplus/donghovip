@@ -12,6 +12,32 @@ Tìm **store / sản phẩm / angle đang vào phase scale**, tức là đang t�
 
 > **Giới hạn dữ liệu:** Ad Library API chỉ trả quảng cáo thương mại **phân phối ở EU**. Ad chỉ chạy ở US thì không lấy được qua API. Store US đã scale thường chạy cả IE, NL, DK, SE (nơi ad tiếng Anh phổ biến), nên tool dùng các nước này làm proxy.
 
+## Bản đồ khoảng trống + Lời khách hàng
+
+**Organic cho biết khách cần gì (cầu), ad cho biết đối thủ bán gì (cung). So cầu với cung ra khoảng trống.**
+
+1. **Kho organic cho mỗi sản phẩm:** bài và bình luận TikTok/Reddit/YouTube theo nỗi đau và tên gọi chung của sản phẩm, tối đa 120 bài. Bài < 3 từ, bài không phải tiếng Anh, và ad/tài trợ bị loại.
+2. **Bộ nhãn chung:** Claude phân loại **cả ad lẫn organic trong cùng một lượt**, nên hai bên dùng chung một bộ angle × persona và so được với nhau. Bộ nhãn gồm cả angle **chỉ có trong organic** (khách nói nhưng chưa ai bán, tức là khoảng trống) và angle chỉ có trong ad.
+3. **Mỗi angle được đo 2 phía:**
+   - **Cầu:** tỉ trọng thảo luận organic (có trọng số tương tác) và đà tăng 90 ngày.
+   - **Cung:** tỉ trọng ad đang sống, số store, ad ≥ 30 ngày.
+
+| Kết luận | Khi nào |
+|---|---|
+| 🟢 **Khoảng trống** | Cầu ≥ 10% thảo luận, cung < 5% ad: khách nói nhiều, gần như chưa ai chạy ad |
+| 🔵 **Đã kiểm chứng** | Có cầu, đối thủ chạy và ad sống tốt. Vào được nếu làm tốt hơn (đây là "cái họ làm đúng") |
+| 🟠 **Tranh nhau sai cách** | Có cầu, nhiều ad nhưng chết nhanh. Cơ hội cho creative tốt hơn ("cái họ làm chưa tốt") |
+| 🔴 **Bão hoà** | Nhiều ad nhưng khách ít nói hoặc đang nói ít đi |
+| Ad chung chung | Ad chỉ nói giảm giá/cam kết, không nhắm persona nào |
+
+Kèm theo là **điểm cơ hội** (0–100: cầu lớn, cung nhỏ, cầu đang tăng thì cao) và danh sách "chưa ai đụng tới" (Claude đề xuất, chưa có trong ad lẫn organic).
+
+**Lưu ý khi đọc:** tỉ trọng cầu là tỉ trọng **thảo luận** của những người lên mạng nói, không phải tỉ trọng người mua, và phụ thuộc nền tảng và từ khoá tìm. Nó dùng để so **tương đối** giữa các angle và theo thời gian. Trang luôn hiện cỡ mẫu và nguồn.
+
+**Lời khách hàng** (`language.html`): cụm từ khách dùng, **chép nguyên văn** (cụm không có nguyên văn trong bài gốc bị loại), phân loại nỗi đau / mong muốn / phản đối / thời điểm kích hoạt / kết quả mong đợi, kèm tần suất trong kho, angle, persona, link bài gốc. Lọc được và **tải CSV** cho người viết content.
+
+Các chỉ số `demand_share`, `gap_opportunity`, `gap_verdict` dùng được trong hồ sơ angle; hồ sơ "Angle đúng thời điểm" mặc định có trọng số cho điểm cơ hội.
+
 ## Persona: nhu cầu riêng + xác minh trên mạng xã hội
 
 Winning product chỉ là một dạng của **angle/persona win mang tính thời điểm**. Vì vậy mỗi angle được kiểm tra thêm 2 thứ (`winfinder personas`, cấu hình ở `config.yaml → personas`):
@@ -283,6 +309,8 @@ winfinder/
   analysis/angles.py     Claude chia angle/persona, đo tăng trưởng từng angle
   angles_pipeline.py     chạy angle cho các sản phẩm ứng viên (cache theo nội dung ad)
   angles_report.py       trang Angle
+  analysis/gaps.py       bản đồ khoảng trống: cầu organic vs cung ad trên cùng bộ angle
+  gaps_report.py         trang Khoảng trống + Lời khách hàng (lọc, tải CSV)
   pipeline.py            collect / enrich
   report.py              xuất JSON + HTML
   demo.py                dữ liệu giả lập

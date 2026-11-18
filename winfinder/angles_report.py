@@ -97,3 +97,5 @@ def write(products: list[ProductAngles], report_dir: Path, as_of: date, note: st
         encoding="utf-8",
     )
     (report_dir / "angles.html").write_text(render(products, as_of, note), encoding="utf-8")
+    from winfinder import gaps_report  # trang Khoảng trống + Lời khách hàng dùng cùng dữ liệu
+    gaps_report.write([p.to_dict() for p in products], report_dir, as_of)

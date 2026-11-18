@@ -285,6 +285,10 @@ ANGLE_DEFS = {
                     "Thức dậy không còn bọng mắt", "testimonial"),
     "science": ("Chứng minh khoa học", "Người cần bằng chứng", "Nghi ngờ hiệu quả", "Ánh sáng đỏ 630nm được nghiên cứu",
                 "authority"),
+    "students": ("Học sinh ôn thi bị gù", "Học sinh, sinh viên học nhiều giờ", "Đau cổ, gù lưng vì ngồi học",
+                 "Thẳng lưng khi học, hết mỏi cổ", "problem-solution"),
+    "allergy": ("Dị ứng lông mèo", "Người nuôi mèo bị dị ứng", "Hắt hơi, ngứa vì lông mèo khắp nhà",
+                "Nhà sạch lông, bớt dị ứng", "problem-solution"),
     "offer": ("Ưu đãi / cam kết hoàn tiền", "Người săn khuyến mãi", "Sợ mua phải hàng kém", "Giảm giá, hoàn tiền 30 ngày",
               "offer"),
 }
@@ -299,6 +303,18 @@ ANGLE_QUERIES = {
     "night-shift": (["night shift dark circles"], ["night shift nurse eye bags", "night shift tired eyes"]),
     "science": (["red light therapy benefits"], ["does red light therapy work"]),
     "offer": ([], []),
+    "students": (["posture for students"], ["my neck hurts from studying", "studying all day posture"]),
+    "allergy": (["cat allergy relief"], ["my cat allergies are killing me"]),
+}
+
+# kho organic theo truy vấn cấp sản phẩm: (angle, số bài 90 ngày gần, 90 ngày trước)
+CORPUS = {
+    "back pain": [("desk", 30, 25), ("students", 26, 8), ("confidence", 8, 8), ("gift", 2, 2)],
+    "posture corrector": [("desk", 10, 10), ("students", 8, 2), ("confidence", 12, 10), ("gift", 3, 3)],
+    "eye bags": [("younger", 25, 15), ("night-shift", 18, 3)],
+    "puffy eyes": [("younger", 10, 8), ("night-shift", 8, 2)],
+    "red light therapy glasses": [("science", 3, 3), ("younger", 4, 3)],
+    "cat hair remover": [("black-clothes", 20, 10), ("couch", 8, 8), ("allergy", 15, 4)],
 }
 
 UNTAPPED = {
@@ -317,21 +333,36 @@ class DemoAngleAnalyzer:
     def __init__(self):
         self.calls = 0
 
-    def analyze(self, product, generic, units):
-        from winfinder.analysis.angles import AngleDef, AngleResult
+    def analyze(self, product, generic, units, posts=None):
+        from winfinder.analysis.angles import parse_result
 
         self.calls += 1
         text_to_key = {txt.lower(): key for opts in ANGLE_COPY.values() for key, texts, _ in opts for txt in texts}
         ids: dict[str, str] = {}
-        assignments = {}
+        assignments = []
         for u in units:
             body = u.text.split(" | ")[-1].lower()
             key = text_to_key.get(body, "offer")
             ids.setdefault(key, f"A{len(ids) + 1}")
-            assignments[u.ref] = ids[key]
-        angles = [AngleDef(aid, *ANGLE_DEFS[key], *ANGLE_QUERIES.get(key, ([], []))) for key, aid in ids.items()]
+            assignments.append({"ad": u.ref, "angle": ids[key]})
+        post_assign, phrases = [], []
+        for i, p in enumerate(posts or [], 1):
+            text = f"{p.title} {p.text}".lower()
+            hit = next(((k, q) for k, (_, qs) in ANGLE_QUERIES.items() for q in qs if q in text), None)
+            if not hit:
+                continue
+            key, q = hit
+            ids.setdefault(key, f"A{len(ids) + 1}")          # angle chỉ có trong organic → khoảng trống
+            post_assign.append({"post": f"o{i}", "angle": ids[key]})
+            if len(phrases) < 30:
+                phrases.append({"angle": ids[key], "post": f"o{i}", "phrase": q, "kind": "pain"})
+        angles = [dict(zip(("id", "name", "persona", "pain_point", "promise", "hook_type"), (aid, *ANGLE_DEFS[key])),
+                       pain_keywords=ANGLE_QUERIES.get(key, ([], []))[0],
+                       social_queries=ANGLE_QUERIES.get(key, ([], []))[1]) for key, aid in ids.items()]
         cat = "posture" if "posture" in product else ("eye-care" if "light" in product or "eye" in product else "")
-        return AngleResult(angles, assignments, UNTAPPED.get(cat, []), "demo")
+        return parse_result({"angles": angles, "assignments": assignments, "post_assignments": post_assign,
+                             "customer_phrases": phrases, "untapped_angles": UNTAPPED.get(cat, [])},
+                            units, "demo", posts)
 
 
 # ------------------------------------------------------------------ ad chỉ tìm thấy khi mở rộng theo domain
@@ -439,9 +470,22 @@ class DemoSocialSource:
         from winfinder.sources.social import SocialPost
 
         self.calls += 1
-        recent, prev, genuine = SOCIAL.get(query, (0, 0, False))
         rng = random.Random(zlib.crc32(query.encode()))
         posts = []
+        if query in CORPUS:  # truy vấn cấp sản phẩm: bài thuộc nhiều angle
+            n = 0
+            for key, recent, prev in CORPUS[query]:
+                phrase = ANGLE_QUERIES[key][1][0]
+                for j in range(recent + prev):
+                    age = rng.randint(0, 89) if j < recent else rng.randint(90, 179)
+                    text = rng.choice(_POST_TEXT[True]).format(q=phrase)
+                    posts.append(SocialPost("reddit", f"c{zlib.crc32(query.encode())}-{n}", text, text,
+                                            f"https://www.reddit.com/r/demo/c{n}",
+                                            (self.today - timedelta(days=age)).isoformat(),
+                                            rng.randint(1, 300), rng.randint(0, 80), rng.choice(["AskReddit", "Posture"])))
+                    n += 1
+            return posts
+        recent, prev, genuine = SOCIAL.get(query, (0, 0, False))
         for i in range(recent + prev):
             age = rng.randint(0, 89) if i < recent else rng.randint(90, 179)
             text = rng.choice(_POST_TEXT[genuine]).format(q=query)

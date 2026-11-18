@@ -73,6 +73,9 @@ CHOICE_VI: dict[str, dict[str, str]] = {
 }
 CHOICE_VI["need_label"] = CHOICE_VI["trend_label"]
 CHOICE_VI["persona_need_label"] = CHOICE_VI["trend_label"]
+CHOICE_VI["gap_verdict"] = {"gap": "Khoảng trống", "fumbled": "Tranh nhau sai cách", "proven": "Đã kiểm chứng",
+                            "balanced": "Cân bằng", "oversupplied": "Bão hoà", "minor": "Nhỏ",
+                            "generic": "Ad chung chung"}
 CHOICE_VI["social_verdict"] = {"confirmed": "Xác thực", "partial": "Một phần", "weak": "Yếu",
                                "not_found": "Không tìm thấy"}
 
@@ -135,6 +138,13 @@ METRICS: dict[str, Metric] = {m.key: m for m in [
            fmt="{:.0f}"),
     Metric("social_growth", "Đà thảo luận (90 ngày gần / trước)", "Persona", norm=lambda x: _clamp((x - 0.8) / 1.2),
            fmt="{:.2f}×"),
+    # --- Khoảng trống (cầu organic vs cung ad, cùng bộ angle)
+    Metric("demand_share", "Tỉ trọng thảo luận organic (cầu)", "Khoảng trống", norm=lambda x: _clamp(x / 0.3),
+           fmt=PCT),
+    Metric("gap_opportunity", "Điểm cơ hội (cầu lớn, cung nhỏ)", "Khoảng trống", norm=lambda x: _clamp(x / 100),
+           fmt="{:.0f}"),
+    Metric("gap_verdict", "Kết luận khoảng trống", "Khoảng trống", kind="category",
+           choices=("gap", "fumbled", "proven", "balanced", "oversupplied", "minor", "generic")),
 ]}
 
 OPS = {">=": "≥", "<=": "≤", "in": "thuộc", "not_in": "không thuộc", "is": "là"}
@@ -256,6 +266,7 @@ profiles:
       - {metric: social_score, weight: 2}
       - {metric: social_growth, weight: 1.5}
       - {metric: trend_score, weight: 1}
+      - {metric: gap_opportunity, weight: 2}
 
   - key: angle_durable
     label: Angle bền
@@ -274,6 +285,7 @@ profiles:
       - {metric: persona_need_score, weight: 1.5}
       - {metric: angle_stores, weight: 1}
       - {metric: seasonal_amplitude, weight: 1, prefer: low}
+      - {metric: demand_share, weight: 1.5}
 """
 
 
