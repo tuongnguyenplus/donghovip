@@ -95,6 +95,29 @@ class PersonasConfig:
 
 
 @dataclass
+class ApifyConfig:
+    enabled: bool = True
+    budget_per_scan_usd: float = 3.0   # trần chi phí Apify cho MỖI lần quét (mọi bước cộng lại)
+    per_run_cap_usd: float = 1.0       # trần cho một lượt chạy actor
+    # Facebook Ads US
+    fb_us: bool = True
+    fb_country: str = "US"
+    max_ads_per_keyword: int = 100
+    sweep_top_stores: int = 10         # quét trọn page của N store điểm cao (đếm đúng + suy ra ad đã tắt)
+    max_ads_per_page: int = 200
+    # TikTok organic
+    tiktok: bool = True
+    tiktok_country: str = "US"
+    tiktok_results_per_query: int = 20
+    tiktok_comment_videos: int = 3
+    tiktok_comments_per_video: int = 20
+    english_only: bool = True
+    # Instagram (theo profile brand — tìm theo hashtag bị Instagram chặn)
+    instagram: bool = True
+    instagram_posts_per_profile: int = 12
+
+
+@dataclass
 class Config:
     database: Path
     report_dir: Path
@@ -116,6 +139,7 @@ class Config:
     link: LinkConfig = field(default_factory=LinkConfig)
     expand: ExpandConfig = field(default_factory=ExpandConfig)
     personas: PersonasConfig = field(default_factory=PersonasConfig)
+    apify: ApifyConfig = field(default_factory=ApifyConfig)
     angles: AnglesConfig = field(default_factory=AnglesConfig)
 
 
@@ -157,6 +181,8 @@ def load_config(path: str | Path) -> Config:
         trends=_load_trends(raw.get("trends") or {}, base, searches),
         link=_load_link(raw.get("link") or {}),
         durability=_load_durability(raw.get("durability") or {}),
+        apify=ApifyConfig(**{k: v for k, v in (raw.get("apify") or {}).items()
+                             if k in ApifyConfig.__dataclass_fields__}),
         personas=PersonasConfig(**{k: v for k, v in (raw.get("personas") or {}).items()
                                    if k in PersonasConfig.__dataclass_fields__}),
         expand=ExpandConfig(**{k: ([c.upper() for c in v] if k == "countries" else v)

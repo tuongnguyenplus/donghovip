@@ -32,6 +32,7 @@ ANGLE_LABELS = {
     "new": "Mới xuất hiện",
     "steady": "Ổn định",
     "churn": "Creative chết nhanh",
+    "observing": "Đang theo dõi",
     "declining": "Đang giảm",
     "stopped": "Đã dừng",
 }
@@ -159,6 +160,8 @@ class AngleAnalyzer(Protocol):
 # ------------------------------------------------------------------ gom đơn vị ad
 def ad_units(conn: sqlite3.Connection, store_keys: list[str]) -> tuple[list[AdUnit], dict[str, dict]]:
     """Đơn vị ad (nội dung đã bỏ trùng) cho các store + meta từng ad (ngày bắt đầu, store)."""
+    from winfinder.analysis.scoring import ACTIVE_ONLY_SOURCES, observable
+
     meta: dict[str, dict] = {}
     by_text: dict[str, dict] = {}
     for key in store_keys:
@@ -173,7 +176,9 @@ def ad_units(conn: sqlite3.Connection, store_keys: list[str]) -> tuple[list[AdUn
             if not text:
                 continue
             meta[r["ad_id"]] = {"start": r["start_date"], "stop": r["stop_date"], "store": key,
-                                "reach": r["eu_total_reach"] or 0}
+                                "reach": r["eu_total_reach"] or 0, "observable": observable(r),
+                                "first_seen": r["first_seen"] if (r["source"] or "meta") in ACTIVE_ONLY_SOURCES
+                                else None}
             u = by_text.setdefault(text.lower(), {"text": text, "ads": [], "stores": set(), "starts": [], "reach": 0})
             u["ads"].append(r["ad_id"])
             u["stores"].add(key)
@@ -301,7 +306,7 @@ def angle_status(arch: str, first_seen: date | None, as_of: date, product_first:
             and product_first and (first_seen - product_first).days >= 21):
         return "new"
     return {"scaling": "rising", "early": "rising", "treadmill": "churn", "declining": "declining",
-            "stopped": "stopped"}.get(arch, "steady")
+            "stopped": "stopped", "observing": "observing"}.get(arch, "steady")
 
 
 def angle_stats(result: AngleResult, units: list[AdUnit], meta: dict[str, dict], as_of: date,
@@ -318,11 +323,14 @@ def angle_stats(result: AngleResult, units: list[AdUnit], meta: dict[str, dict],
     tmp = []
     for a in result.angles:
         us = by_angle[a.id]
-        lives = [AdLife(d(meta[i]["start"]), d(meta[i].get("stop")), u.text)
-                 for u in us for i in u.ad_ids if meta.get(i, {}).get("start")]
+        ids = [i for u in us for i in u.ad_ids if meta.get(i, {}).get("start")]
+        lives = [AdLife(d(meta[i]["start"]), d(meta[i].get("stop")), next(u.text for u in us if i in u.ad_ids),
+                        observable=meta[i].get("observable", True)) for i in ids]
         if not lives:
             continue
-        tmp.append((a, us, lives, measure(lives, as_of, 12, rules)))
+        seen = [d(meta[i]["first_seen"]) for i in ids if meta[i].get("first_seen")]
+        tracked = (as_of - min(seen)).days if seen else None
+        tmp.append((a, us, lives, measure(lives, as_of, 12, rules, tracked_days=tracked)))
 
     total_active = sum(m.active_now for *_, m in tmp)
     firsts = [min(x.start for x in lives) for _, _, lives, _ in tmp]
@@ -340,6 +348,6 @@ def angle_stats(result: AngleResult, units: list[AdUnit], meta: dict[str, dict],
             survival_30=m.survival_30, alive_30=m.alive_30,
             samples=[u.text for u in sorted(us, key=lambda u: -u.reach)[:2]],
         ))
-    order = {"rising": 0, "new": 1, "steady": 2, "churn": 3, "declining": 4, "stopped": 5}
+    order = {"rising": 0, "new": 1, "steady": 2, "observing": 2, "churn": 3, "declining": 4, "stopped": 5}
     out.sort(key=lambda s: (order[s.status], -s.recent_share))
     return out

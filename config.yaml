@@ -120,6 +120,25 @@ angles:
   min_ads: 4            # cần ít nhất N nội dung ad khác nhau
   max_products: 15      # chỉ phân tích N sản phẩm điểm ứng viên cao nhất
 
+# Apify: ad Facebook US (API Meta chỉ có EU), TikTok organic, Instagram theo profile. Cần APIFY_TOKEN.
+apify:
+  enabled: true
+  budget_per_scan_usd: 3.0      # TRẦN chi phí cho mỗi lần quét — Apify tự dừng khi chạm trần
+  per_run_cap_usd: 1.0
+  fb_us: true
+  fb_country: US
+  max_ads_per_keyword: 100      # ~ $0.58 / keyword
+  sweep_top_stores: 10          # quét trọn page của N store điểm cao (đếm đúng + suy ra ad đã tắt)
+  max_ads_per_page: 200
+  tiktok: true
+  tiktok_country: US
+  tiktok_results_per_query: 20
+  tiktok_comment_videos: 3
+  tiktok_comments_per_video: 20
+  english_only: true
+  instagram: true               # theo tài khoản IG của store đối thủ (tìm theo hashtag bị Instagram chặn)
+  instagram_posts_per_profile: 12
+
 # Persona: nhu cầu riêng của từng angle (Trends) + xác minh trên mạng xã hội
 personas:
   enabled: true

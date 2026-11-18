@@ -74,9 +74,11 @@ def page(heading: str, body: str, active: str) -> str:
 
 
 ARCH_SHORT = {"scaling": "Đang scale", "early": "Tăng sớm", "evergreen": "Evergreen", "steady": "Ổn định",
-              "testing": "Đang test", "treadmill": "Máy xay creative", "declining": "Đang giảm", "stopped": "Đã dừng"}
+              "testing": "Đang test", "treadmill": "Máy xay creative", "declining": "Đang giảm", "stopped": "Đã dừng",
+              "observing": "Đang theo dõi"}
 ARCH_COLORS = {"scaling": "#1a7f4b", "early": "#6b4fd8", "evergreen": "#2c6fb7", "steady": "#6b6b66",
-               "testing": "#8a8a85", "treadmill": "#d35400", "declining": "#c0392b", "stopped": "#8a8a85"}
+               "testing": "#8a8a85", "treadmill": "#d35400", "declining": "#c0392b", "stopped": "#8a8a85",
+               "observing": "#6b6b66"}
 
 
 def render_html(results: list[StoreResult], as_of: date, limit: int = 200) -> str:
@@ -107,7 +109,7 @@ def render_html(results: list[StoreResult], as_of: date, limit: int = 200) -> st
 <div class="muted">{_e("; ".join(d["notes"]))}</div><ul>{samples}</ul></details></td>
 <td>{badge}<div class="muted" style="max-width:220px">{_e(s.archetype_vi.split(" — ")[-1])}</div></td>
 <td class="num score">{s.score:.0f}</td>
-<td class="trend">{_sparkline(s.history)}<div class="muted">{d["active_now"]} đang chạy · đà {d["active_growth"]}×</div></td>
+<td class="trend">{_sparkline(s.history)}<div class="muted">{d["active_now"]} đang chạy · đà {"chưa rõ" if d["active_growth"] is None else str(d["active_growth"]) + "×"}</div></td>
 <td class="num">{surv}<div class="muted">{d["aged_ads"]} ad đủ tuổi</div></td>
 <td class="num">{d["alive_30"]} / {d["alive_60"]}<div class="muted">cũ nhất {_e(d["oldest_active_days"] or "–")} ngày</div></td>
 <td class="num">{d["dup_share"] * 100:.0f}%<div class="muted">{d["duplicated_creatives"]}/{d["creatives"]} creative</div></td>

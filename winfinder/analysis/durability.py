@@ -26,7 +26,9 @@ ARCHETYPES = {
     "testing": "Đang test — chưa ad nào đủ tuổi",
     "steady": "Ổn định",
     "stopped": "Đã dừng — không còn ad nào chạy",
+    "observing": "Đang theo dõi — chưa đủ lịch sử để đo đà tăng (lần đầu chỉ thấy ad còn sống)",
 }
+MIN_TRACKED_DAYS = 21   # nguồn chỉ thấy ad đang chạy: cần theo dõi ≥ N ngày mới đo được đà tăng
 
 
 @dataclass
@@ -34,6 +36,10 @@ class AdLife:
     start: date
     stop: date | None          # None = đang chạy
     creative: str              # nội dung đã chuẩn hoá (nhận diện creative)
+    # Ta có quan sát được cái chết của ad này không? Nguồn chỉ thấy ad ĐANG CHẠY (Ad Library US) mà lần đầu
+    # thấy ad khi nó đã già → chỉ thấy ad sống sót → không được tính vào tỉ lệ sống sót (thiên lệch người sống sót).
+    observable: bool = True
+    versions: int = 1          # số phiên bản dùng chung creative (Ad Library)
 
     def alive_on(self, d: date) -> bool:
         return self.start <= d and (self.stop is None or self.stop >= d)
@@ -58,7 +64,7 @@ class Durability:
     active_now: int
     active_history: list[int]          # ad đang sống mỗi tuần (cũ → mới)
     launch_history: list[int]          # ad mới mỗi tuần
-    active_growth: float               # đà tăng ad đang sống
+    active_growth: float | None        # đà tăng ad đang sống (None = chưa đủ lịch sử để đo)
     aged_ads: int                      # số ad đủ tuổi profit_days
     survival_30: float | None          # trong ad đủ tuổi, % sống ≥ profit_days
     survival_60: float | None
@@ -108,17 +114,24 @@ def _mean(xs) -> float:
     return sum(xs) / len(xs) if xs else 0.0
 
 
-def measure(ads: list[AdLife], as_of: date, weeks: int = 12, rules: DurabilityRules | None = None) -> Durability:
+def measure(ads: list[AdLife], as_of: date, weeks: int = 12, rules: DurabilityRules | None = None,
+            tracked_days: int | None = None) -> Durability:
+    """tracked_days: số ngày tool đã theo dõi các ad thuộc nguồn chỉ-thấy-ad-đang-chạy (None = nguồn đủ lịch sử)."""
     r = rules or DurabilityRules()
     active_hist = active_weekly(ads, as_of, weeks)
     launch_hist = launch_weekly(ads, as_of, weeks)
     active_now = active_hist[-1] if active_hist else 0
     # đà tăng: trung bình 2 tuần gần nhất so với tuần -6..-4 (làm mượt +1 cho store nhỏ)
     recent, before = _mean(active_hist[-2:]), _mean(active_hist[-6:-3])
-    growth = (recent + 1) / (before + 1)
-
-    aged = [a for a in ads if (as_of - a.start).days >= r.profit_days]
-    aged60 = [a for a in ads if (as_of - a.start).days >= r.evergreen_days]
+    growth: float | None = (recent + 1) / (before + 1)
+    # Nguồn chỉ thấy ad đang chạy: đồ thị quá khứ chỉ gồm ad CÒN SỐNG → luôn trông như đang tăng.
+    # Phần lớn ad thuộc loại này và mới theo dõi < 3 tuần → đà tăng = chưa rõ (không đoán).
+    hidden_share = sum(1 for a in ads if not a.observable) / len(ads) if ads else 0.0
+    growth_unknown = hidden_share >= 0.5 and tracked_days is not None and tracked_days < MIN_TRACKED_DAYS
+    if growth_unknown:
+        growth = None
+    aged = [a for a in ads if a.observable and (as_of - a.start).days >= r.profit_days]
+    aged60 = [a for a in ads if a.observable and (as_of - a.start).days >= r.evergreen_days]
     surv30 = _mean(1.0 if a.lifespan(as_of) >= r.profit_days else 0.0 for a in aged) if aged else None
     surv60 = _mean(1.0 if a.lifespan(as_of) >= r.evergreen_days else 0.0 for a in aged60) if aged60 else None
     live = [a for a in ads if a.stop is None or a.stop >= as_of]
@@ -132,31 +145,40 @@ def measure(ads: list[AdLife], as_of: date, weeks: int = 12, rules: DurabilityRu
     by_creative: dict[str, list[AdLife]] = defaultdict(list)
     for a in ads:
         by_creative[a.creative].append(a)
-    dup = {c for c, xs in by_creative.items() if len({a.start for a in xs}) >= 2}
+    dup = {c for c, xs in by_creative.items()
+           if len({a.start for a in xs}) >= 2 or max(a.versions for a in xs) >= 2}
     dup_share = (sum(1 for a in live if a.creative in dup) / len(live)) if live else 0.0
 
-    momentum = growth >= r.momentum_ratio
+    momentum = growth is not None and growth >= r.momentum_ratio
     enough_age = len(aged) >= r.min_aged_ads
     durable = enough_age and ((surv30 or 0) >= r.durable_survival or alive30 >= 2)
     notes = []
+    hidden = sum(1 for a in ads if not a.observable)
+    if growth_unknown:
+        notes.append(f"mới theo dõi {tracked_days} ngày — đà tăng chưa đo được (cần ≥ {MIN_TRACKED_DAYS} ngày)")
+    if hidden:
+        notes.append(f"{hidden} ad chỉ thấy khi đang chạy (Ad Library US) — chưa tính vào tỉ lệ sống sót; "
+                     f"sẽ chính xác dần khi tool theo dõi đủ lâu")
     if not enough_age:
-        notes.append(f"chỉ {len(aged)} ad đủ {r.profit_days} ngày — chưa kết luận được độ bền")
+        notes.append(f"chỉ {len(aged)} ad đủ {r.profit_days} ngày (đã quan sát từ đầu) — chưa kết luận được độ bền")
 
     if active_now == 0:
         arch = "stopped"
+    elif growth_unknown:
+        arch = "evergreen" if alive60 >= 2 else "observing"
     elif momentum:
         if durable:
             arch = "scaling"
         elif not enough_age:
             # chưa ad nào đủ 30 ngày: nếu ad đủ 14 ngày phần lớn đã chết → vẫn chỉ là đang test
-            aged14 = [a for a in ads if (as_of - a.start).days >= 14]
+            aged14 = [a for a in ads if a.observable and (as_of - a.start).days >= 14]
             surv14 = _mean(1.0 if a.lifespan(as_of) >= 14 else 0.0 for a in aged14) if aged14 else None
             arch = "testing" if surv14 is not None and surv14 < 0.5 else "early"
         else:
             arch = "treadmill"
     elif enough_age and (surv30 or 0) < r.treadmill_survival and launches_4w >= r.treadmill_launches_4w:
         arch = "treadmill"
-    elif growth <= 1 / r.momentum_ratio:
+    elif growth is not None and growth <= 1 / r.momentum_ratio:
         arch = "declining"
     elif alive60 >= 2:
         arch = "evergreen"
@@ -167,7 +189,7 @@ def measure(ads: list[AdLife], as_of: date, weeks: int = 12, rules: DurabilityRu
 
     return Durability(
         active_now=active_now, active_history=active_hist, launch_history=launch_hist,
-        active_growth=round(growth, 2), aged_ads=len(aged),
+        active_growth=round(growth, 2) if growth is not None else None, aged_ads=len(aged),
         survival_30=round(surv30, 3) if surv30 is not None else None,
         survival_60=round(surv60, 3) if surv60 is not None else None,
         alive_30=alive30, alive_60=alive60, oldest_active_days=oldest,

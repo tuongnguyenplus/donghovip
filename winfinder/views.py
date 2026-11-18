@@ -22,7 +22,7 @@ from typing import Any
 from winfinder import profiles as pf
 from winfinder.report import page
 
-ARCH_RANK = ["scaling", "evergreen", "early", "steady", "testing", "treadmill", "declining", "stopped"]
+ARCH_RANK = ["scaling", "evergreen", "early", "steady", "observing", "testing", "treadmill", "declining", "stopped"]
 DECISION_COLORS = {"strong": "#1a7f4b", "fit": "#2c6fb7", "weak": "#8a8a85", "blocked": "#c0392b"}
 LABEL_VI = {"win": "Đã win", "fail": "Đã fail", "unsure": "Chưa rõ"}
 LABEL_COLORS = {"win": "#1a7f4b", "fail": "#c0392b", "unsure": "#8a8a85"}

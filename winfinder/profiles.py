@@ -50,9 +50,9 @@ class Metric:
 
 
 TREND_LABELS = ("rising", "breakout", "seasonal", "stable", "declining", "spike", "insufficient")
-ARCHETYPES = ("scaling", "early", "evergreen", "steady", "testing", "treadmill", "declining", "stopped")
+ARCHETYPES = ("scaling", "early", "evergreen", "steady", "testing", "treadmill", "declining", "stopped", "observing")
 TRAFFIC = ("confirmed", "organic", "unconfirmed", "flat", "declining", "too_small", "ambiguous", "no_data")
-ANGLE_STATUS = ("rising", "new", "steady", "churn", "declining", "stopped")
+ANGLE_STATUS = ("rising", "new", "steady", "churn", "declining", "stopped", "observing")
 SOCIAL_VERDICTS = ("confirmed", "partial", "weak", "not_found")
 KINDS = ("product", "store", "angle")
 PCT = "{:.0%}"
@@ -64,12 +64,12 @@ CHOICE_VI: dict[str, dict[str, str]] = {
                     "insufficient": "Thiếu dữ liệu"},
     "archetype": {"scaling": "Đang scale", "early": "Tăng sớm", "evergreen": "Evergreen", "steady": "Ổn định",
                   "testing": "Đang test", "treadmill": "Máy xay creative", "declining": "Đang giảm",
-                  "stopped": "Đã dừng"},
+                  "stopped": "Đã dừng", "observing": "Đang theo dõi"},
     "traffic": {"confirmed": "Tăng cùng ad", "organic": "Tăng tự nhiên", "unconfirmed": "Chưa tăng theo ad",
                 "flat": "Đi ngang", "declining": "Đang giảm", "too_small": "Chưa đủ lớn", "ambiguous": "Tên mơ hồ",
                 "no_data": "Không có dữ liệu"},
     "angle_status": {"rising": "Đang lên", "new": "Mới xuất hiện", "steady": "Ổn định", "churn": "Creative chết nhanh",
-                     "declining": "Đang giảm", "stopped": "Đã dừng"},
+                     "declining": "Đang giảm", "stopped": "Đã dừng", "observing": "Đang theo dõi"},
 }
 CHOICE_VI["need_label"] = CHOICE_VI["trend_label"]
 CHOICE_VI["persona_need_label"] = CHOICE_VI["trend_label"]

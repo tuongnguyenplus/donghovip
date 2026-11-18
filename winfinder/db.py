@@ -160,7 +160,8 @@ AD_COLUMNS = {
     "via_domain": "TEXT",       # domain trung gian (advertorial/listicle) nếu ad không trỏ thẳng store
     "link_url": "TEXT",         # đường dẫn đầy đủ (connector có; API Meta không có)
     "landing_type": "TEXT",     # pdp | collection | home | store | advertorial | listicle | quiz | presell
-    "source": "TEXT",           # meta | foreplay | ...
+    "source": "TEXT",           # meta (EU, đủ lịch sử) | apify_fb (US, chỉ thấy ad đang chạy) | ...
+    "versions": "INTEGER",      # số phiên bản dùng chung creative — tín hiệu nhân bản
 }
 
 
@@ -196,8 +197,8 @@ def upsert_ads(
             """
             INSERT INTO ads (ad_id, page_id, page_name, domain, created_at, start_date, stop_date,
                              bodies, titles, captions, snapshot_url, platforms, languages,
-                             eu_total_reach, first_seen, last_seen, landing_domain, link_url, source)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                             eu_total_reach, first_seen, last_seen, landing_domain, link_url, source, versions)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(ad_id) DO UPDATE SET
                 page_name=excluded.page_name,
                 -- domain đã được nối về store gốc (via_domain) thì giữ nguyên
@@ -205,6 +206,7 @@ def upsert_ads(
                             ELSE COALESCE(excluded.domain, ads.domain) END,
                 landing_domain=COALESCE(excluded.landing_domain, ads.landing_domain),
                 link_url=COALESCE(excluded.link_url, ads.link_url),
+                versions=COALESCE(excluded.versions, ads.versions),
                 stop_date=excluded.stop_date,
                 eu_total_reach=COALESCE(excluded.eu_total_reach, ads.eu_total_reach),
                 last_seen=excluded.last_seen
@@ -214,7 +216,7 @@ def upsert_ads(
                 ad.stop_date, json.dumps(ad.bodies, ensure_ascii=False),
                 json.dumps(ad.titles, ensure_ascii=False), json.dumps(ad.captions, ensure_ascii=False),
                 ad.snapshot_url, json.dumps(ad.platforms), json.dumps(ad.languages),
-                ad.eu_total_reach, today, today, ad.domain, ad.link_url, ad.source,
+                ad.eu_total_reach, today, today, ad.domain, ad.link_url, ad.source, ad.versions,
             ),
         )
         conn.execute("INSERT OR IGNORE INTO ad_countries VALUES (?,?)", (ad.ad_id, country))

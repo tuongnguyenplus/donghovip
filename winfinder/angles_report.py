@@ -15,6 +15,7 @@ STATUS_COLORS = {
     "new": "#6b4fd8",
     "steady": "#6b6b66",
     "churn": "#d35400",
+    "observing": "#6b6b66",
     "declining": "#c0392b",
     "stopped": "#8a8a85",
 }

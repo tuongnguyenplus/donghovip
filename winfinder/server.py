@@ -34,7 +34,8 @@ from winfinder.runner import STEP_LABELS, STEPS, ScanResult, only_niche, run_sca
 log = logging.getLogger(__name__)
 
 KEYS = {
-    "META_AD_LIBRARY_TOKEN": "Meta Ad Library — bắt buộc để lấy ad",
+    "APIFY_TOKEN": "Apify — ad Facebook US, TikTok, Instagram (console.apify.com → Settings → API & Integrations)",
+    "META_AD_LIBRARY_TOKEN": "Meta Ad Library — ad chạy ở EU (miễn phí, đủ lịch sử)",
     "ANTHROPIC_API_KEY": "Claude — hiểu sản phẩm, phân tích angle",
     "SERPAPI_API_KEY": "SerpApi — Google Trends ổn định (không có: gọi Google trực tiếp)",
     "REDDIT_CLIENT_ID": "Reddit — xác minh persona (tạo app loại “script” ở reddit.com/prefs/apps)",

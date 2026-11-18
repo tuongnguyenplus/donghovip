@@ -44,6 +44,7 @@ jobs:
         if: steps.tok.outputs.ok == 'true'
         env:
           META_AD_LIBRARY_TOKEN: ${{ secrets.META_AD_LIBRARY_TOKEN }}
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.enrich }}" = "false" ]; then
             winfinder run --config config.yaml --no-enrich

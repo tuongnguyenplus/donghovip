@@ -66,6 +66,7 @@ class Ad:
     eu_total_reach: int | None
     link_url: str | None = None       # đường dẫn đầy đủ (connector có; API Meta không trả)
     source: str = "meta"
+    versions: int | None = None       # số phiên bản dùng chung creative (Ad Library: "X ads use this creative")
 
 
 def extract_domain(captions: list[str] | None, exclude: set[str] = frozenset()) -> str | None:

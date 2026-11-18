@@ -81,6 +81,20 @@ Chạy trên máy cá nhân còn có lợi là Google Trends ít bị chặn hơ
 Server chỉ nghe trên `127.0.0.1`. Mọi thao tác ghi cần token của phiên, và Host header được kiểm tra.
 Quét từ dòng lệnh: `winfinder scan` (tất cả) hoặc `winfinder scan --niche "eye care"`.
 
+## Ad Facebook chạy ở US (qua Apify)
+
+API Meta miễn phí chỉ trả ad thương mại chạy ở **EU**. Ad US được lấy qua Apify (actor `apify/facebook-ads-scraper`, cần `APIFY_TOKEN`, cấu hình ở `config.yaml → apify`):
+- Có **đường dẫn landing đầy đủ**, nên phân biệt được PDP, collection hay trang chủ chính xác, và **số phiên bản dùng chung creative** (tín hiệu nhân bản).
+- **Trần chi phí cho mỗi lần quét** (`budget_per_scan_usd`, mặc định $3): Apify tự dừng actor khi chạm trần, nên không bao giờ vượt ngân sách. Log ghi số tiền đã dùng. Tham khảo: khoảng $0.003–0.006 mỗi ad.
+- Mỗi lần quét: lấy ad theo keyword của từng ngách, rồi **quét trọn page** của các store điểm cao.
+
+**Giới hạn: Ad Library chỉ hiện ad US đang chạy.** Tool xử lý để không ra số sai:
+1. **Suy ra ad đã tắt:** khi quét trọn một page, ad lần trước còn mà lần này không thấy thì coi là đã tắt (trong khoảng giữa 2 lần quét). Lượt quét chạm giới hạn số lượng thì **không** suy ra, vì có thể còn ad chưa lấy.
+2. **Tỉ lệ sống sót:** ad thấy lần đầu khi đã già chắc chắn là ad sống sót, nên không được tính. Tỉ lệ hiện "chưa đủ dữ liệu" cho tới khi tool theo dõi ad từ đầu.
+3. **Đà tăng:** ở lần quét đầu, đồ thị quá khứ chỉ gồm ad còn sống nên luôn trông như đang tăng. Vì vậy trong 3 tuần đầu theo dõi, đà tăng hiện **"chưa rõ"** và store được xếp dạng **"Đang theo dõi"**. Ngoại lệ: store có ≥ 2 ad sống ≥ 60 ngày được xếp **evergreen** ngay, vì đó là sự thật đã quan sát được.
+
+Các chỉ số không bị thiên lệch dùng được ngay từ lần quét đầu: ad ≥ 30/60 ngày đang chạy, ad cũ nhất, nhân bản, loại landing.
+
 ## Store = domain gốc: mọi page, mọi landing
 
 Một store thường chạy nhiều page, có page vệ tinh chạy advertorial/listicle trên domain khác. Tìm theo keyword chỉ thấy những ad có nhắc keyword, nên sẽ đếm thiếu và đo sai độ bền. Sau mỗi lần thu thập, `expand` làm 3 việc với các store điểm cao (`config.yaml → expand`):
@@ -109,6 +123,7 @@ Một store thường chạy nhiều page, có page vệ tinh chạy advertorial
 
 | Dạng | Khi nào |
 |---|---|
+| Đang theo dõi | Nguồn chỉ thấy ad đang chạy (US) và mới theo dõi < 3 tuần, nên chưa đo được đà tăng |
 | Đang scale | Ad đang sống tăng (≥ 1.5×) **và** ad bền (≥ 30% sống sót hoặc ≥ 2 ad ≥ 30 ngày) |
 | Tăng sớm | Ad đang sống tăng, nhưng chưa đủ 3 ad 30 ngày tuổi để chứng minh độ bền |
 | Máy xay creative | Ra nhiều ad nhưng < 15% sống được 30 ngày |
@@ -249,6 +264,8 @@ winfinder/
   sources/domain.py      RDAP, crt.sh, Shopify products.json
   analysis/durability.py ad đang sống, độ bền, nhân bản, dạng store
   expand.py              mở rộng store: mọi page, toàn bộ ad, lần ngược trang trung gian
+  sources/apify.py       client Apify có trần chi phí mỗi lần quét
+  sources/apify_fb.py    ad Facebook US: theo keyword, quét trọn page, suy ra ad đã tắt
   sources/landing.py     loại landing page, phân giải advertorial/listicle về store gốc
   analysis/scoring.py    gom theo store, chấm điểm
   analysis/trends.py     tách mùa vụ, đo xu hướng, phân loại keyword/chủ đề

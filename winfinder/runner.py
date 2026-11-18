@@ -14,6 +14,9 @@ from datetime import date
 from winfinder import angles_pipeline, angles_report, db, link, link_report, pipeline, report
 from winfinder import personas_pipeline, trends_pipeline, trends_report, views
 from winfinder.analysis.social import ClaudeVerifier
+from winfinder.sources import apify_fb
+from winfinder.sources.apify import ApifyBudget, ApifyClient
+from winfinder.sources.apify import available as apify_available
 from winfinder.sources.social import make_sources
 from winfinder.analysis.angles import make_angle_analyzer
 from winfinder.analysis.product_llm import make_extractor
@@ -43,6 +46,7 @@ class ScanResult:
     done: list[str] = field(default_factory=list)
     skipped: dict[str, str] = field(default_factory=dict)   # bước → lý do
     failed: dict[str, str] = field(default_factory=dict)
+    apify_spent: float = 0.0
 
     @property
     def ok(self) -> bool:
@@ -70,6 +74,9 @@ def run_scan(cfg: Config, steps: list[str] | None = None, today: date | None = N
     today = today or date.today()
     res = ScanResult()
     conn = db.connect(cfg.database)
+    budget = ApifyBudget(cfg.apify.budget_per_scan_usd)
+    apify_client = ApifyClient(budget, per_run_cap=cfg.apify.per_run_cap_usd) \
+        if cfg.apify.enabled and apify_available() else None
     stores = []
 
     def step(name: str, fn) -> None:
@@ -93,26 +100,41 @@ def run_scan(cfg: Config, steps: list[str] | None = None, today: date | None = N
         nonlocal stores
         if not cfg.searches:
             return "chưa có ngách nào được bật"
-        token = os.environ.get("META_AD_LIBRARY_TOKEN", "")
-        if not token:
+        meta_token = os.environ.get("META_AD_LIBRARY_TOKEN", "")
+        use_us = cfg.apify.enabled and cfg.apify.fb_us and apify_client is not None
+        if not meta_token and not use_us:
             stores = analyze(conn, cfg, today)
             report.write_json(stores, cfg.report_dir / "latest.json", today)
             report.write_html(stores, cfg.report_dir / "index.html", today)
-            return "chưa có META_AD_LIBRARY_TOKEN (chỉ chấm lại dữ liệu cũ)"
-        try:
-            client = AdLibraryClient(token, cfg.api_version, sleep_seconds=cfg.request_sleep_seconds)
-        except AdLibraryError as exc:
-            return str(exc)
-        n = pipeline.collect(conn, cfg, client, today)
-        log.info("Đã lưu %d ad", n)
+            return "chưa có META_AD_LIBRARY_TOKEN hay APIFY_TOKEN (chỉ chấm lại dữ liệu cũ)"
+        if meta_token:  # EU — API Meta miễn phí, đủ lịch sử 1 năm
+            try:
+                client = AdLibraryClient(meta_token, cfg.api_version, sleep_seconds=cfg.request_sleep_seconds)
+                n = pipeline.collect(conn, cfg, client, today)
+                log.info("EU (Meta): %d ad", n)
+                if cfg.expand.enabled:
+                    session = make_session()
+                    st = expand_stores(conn, cfg, client, analyze(conn, cfg, today), today,
+                                       resolver=lambda d: resolve(session, d, cfg.exclude_domains))
+                    log.info("Mở rộng EU %d store: +%d ad từ %d page, %d trang trung gian nối về store",
+                             st.stores, st.new_ads, st.pages_swept, st.presell_resolved)
+            except AdLibraryError as exc:
+                log.warning("EU (Meta): %s", exc)
+        else:
+            log.info("Bỏ qua EU: chưa có META_AD_LIBRARY_TOKEN")
+        if use_us:  # US — qua Apify, chỉ thấy ad đang chạy
+            us = apify_fb.collect(conn, cfg, apify_client, today)
+            log.info("US (Apify): %d ad theo keyword", us.ads)
+            if cfg.apify.sweep_top_stores:
+                sw = apify_fb.sweep_store_pages(conn, cfg, apify_client, analyze(conn, cfg, today), today)
+                log.info("US: quét trọn %d page (+%d ad), suy ra %d ad đã tắt", sw.pages_swept, sw.ads,
+                         sw.stopped_inferred)
+                us.skipped += sw.skipped
+            for why in us.skipped:
+                log.warning("US: %s", why)
+        elif cfg.apify.enabled and cfg.apify.fb_us:
+            log.info("Bỏ qua US: chưa có APIFY_TOKEN")
         stores = analyze(conn, cfg, today)
-        if cfg.expand.enabled:
-            session = make_session()
-            st = expand_stores(conn, cfg, client, stores, today,
-                               resolver=lambda d: resolve(session, d, cfg.exclude_domains))
-            log.info("Mở rộng %d store: +%d ad từ %d page, %d trang trung gian nối về store",
-                     st.stores, st.new_ads, st.pages_swept, st.presell_resolved)
-            stores = analyze(conn, cfg, today)
         pipeline.enrich(conn, cfg, stores, today)
         stores = analyze(conn, cfg, today)
         report.write_json(stores, cfg.report_dir / "latest.json", today)
@@ -190,4 +212,7 @@ def run_scan(cfg: Config, steps: list[str] | None = None, today: date | None = N
     step("angles", angles)
     step("personas", personas_step)
     step("views", views_step)
+    if budget.runs:
+        log.info(budget.summary())
+    res.apify_spent = round(budget.spent_usd, 3)
     return res

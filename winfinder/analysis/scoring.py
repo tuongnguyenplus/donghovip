@@ -63,6 +63,20 @@ def _newness(age_days: int | None, new_store_days: int) -> float:
     return _clamp(1 - (age_days - new_store_days) / new_store_days)
 
 
+# nguồn chỉ thấy ad ĐANG CHẠY (không thấy ad đã tắt trước lần quét đầu)
+ACTIVE_ONLY_SOURCES = {"apify_fb"}
+OBSERVE_TOLERANCE_DAYS = 7
+
+
+def observable(row: sqlite3.Row) -> bool:
+    """Ad có được quan sát từ (gần) lúc bắt đầu không — chỉ khi đó mới biết nó sống bao lâu nếu đã chết."""
+    if (row["source"] or "meta") not in ACTIVE_ONLY_SOURCES:
+        return True
+    if not row["start_date"] or not row["first_seen"]:
+        return False
+    return (date.fromisoformat(row["first_seen"]) - date.fromisoformat(row["start_date"])).days <= OBSERVE_TOLERANCE_DAYS
+
+
 def landing_type(row: sqlite3.Row) -> str:
     """Loại landing của một ad: ưu tiên kết quả đã phân giải, rồi đường dẫn đầy đủ, rồi domain."""
     if row["landing_type"]:
@@ -79,7 +93,8 @@ def components(d: Durability, eu_reach: int, n_countries: int, age_days: int | N
     else:
         durab = 0.6 * d.survival_30 + 0.4 * _clamp(d.alive_30 / 5)
     return {
-        "momentum": _clamp((d.active_growth - 1) / 1.5),         # ad đang sống ×2.5 → 1.0
+        # ad đang sống ×2.5 → 1.0; chưa đo được → trung tính
+        "momentum": _clamp((d.active_growth - 1) / 1.5) if d.active_growth is not None else 0.4,
         "durability": round(durab, 3),
         "duplication": d.dup_share,
         "direct": direct,
@@ -130,10 +145,13 @@ def analyze(conn: sqlite3.Connection, cfg: Config, as_of: date, search: str | No
         lives = [
             AdLife(_d(r["start_date"]), _d(r["stop_date"]),
                    creative_key((json.loads(r["titles"] or "[]") or [""])[0],
-                                (json.loads(r["bodies"] or "[]") or [""])[0]))
+                                (json.loads(r["bodies"] or "[]") or [""])[0]),
+                   observable=observable(r), versions=r["versions"] or 1)
             for r in rows if r["start_date"]
         ]
-        dur = measure(lives, as_of, HISTORY_WEEKS, cfg.durability)
+        partial = [r for r in rows if (r["source"] or "meta") in ACTIVE_ONLY_SOURCES and r["first_seen"]]
+        tracked = (as_of - min(date.fromisoformat(r["first_seen"]) for r in partial)).days if partial else None
+        dur = measure(lives, as_of, HISTORY_WEEKS, cfg.durability, tracked_days=tracked)
         countries = sorted(set().union(*(countries_by_ad[r["ad_id"]] for r in rows)))
         eu_reach = sum(r["eu_total_reach"] or 0 for r in rows)
         first_ad = min(starts)
