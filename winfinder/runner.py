@@ -163,7 +163,7 @@ def run_scan(cfg: Config, steps: list[str] | None = None, today: date | None = N
         except TrendsError as exc:
             return str(exc)
         extractor = make_extractor(cfg.link.llm_enabled, cfg.link.llm_model, cfg.link.llm_effort)
-        linked = link.link_stores(conn, cfg, stores, provider, today, extractor=extractor)
+        linked = link.link_stores(conn, cfg, stores, provider, today, extractor=extractor, apify_client=apify_client)
         link_report.write(linked, cfg.report_dir, today, provider.name)
         return None
 
@@ -188,7 +188,7 @@ def run_scan(cfg: Config, steps: list[str] | None = None, today: date | None = N
             provider = _trends_provider(cfg) if cfg.personas.trends else None
         except TrendsError as exc:
             log.warning("Trends cho persona: %s", exc)
-        sources, skipped = make_sources(cfg.personas.sources, dict(os.environ))
+        sources, skipped = make_sources(cfg.personas.sources, dict(os.environ), apify_client, cfg.apify)
         verifier = None
         if cfg.personas.verify and (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
             verifier = ClaudeVerifier(cfg.personas.model, cfg.personas.effort)

@@ -85,7 +85,7 @@ class PersonasConfig:
     max_products: int = 10        # sản phẩm ứng viên được xét
     max_angles: int = 4           # angle / sản phẩm (ưu tiên đang lên, mới)
     trends: bool = True           # Trends cho nhu cầu của từng persona
-    sources: list[str] = field(default_factory=lambda: ["reddit", "youtube"])
+    sources: list[str] = field(default_factory=lambda: ["tiktok", "reddit", "youtube"])
     lookback_days: int = 365
     refresh_days: int = 7
     sample_posts: int = 40        # số bài Claude đọc / angle

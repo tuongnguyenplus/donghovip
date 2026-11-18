@@ -76,6 +76,7 @@ class LinkedStore:
     verdict_text: str = VERDICTS["no_keyword"]
     verdict_basis: str = "product"      # product | need — kết luận dựa trên trend nào
     traffic: dict | None = None         # TrafficSignal: lượt tìm brand có tăng song song với ad không
+    instagram: dict | None = None       # tài khoản IG của store: nhịp đăng, tương tác, bình luận
     win_score: float = 0.0
 
 
@@ -218,6 +219,42 @@ def traffic_signals(
     return out
 
 
+def instagram_signals(conn: sqlite3.Connection, cfg: Config, stores: list[StoreResult], client, today: date,
+                      session=None) -> dict[str, dict]:
+    """Tài khoản Instagram của store (link trên website) → nhịp đăng, tương tác, bình luận. Cache theo refresh_days."""
+    from winfinder.sources.apify import ApifyError, BudgetExhausted
+    from winfinder.sources.apify_social import instagram_brand, lookup_handle
+
+    session = session or make_session()
+    out: dict[str, dict] = {}
+    for s in stores:
+        if not s.domain:
+            continue
+        handle = lookup_handle(conn, session, s.domain, today)
+        if not handle:
+            continue
+        row = conn.execute("SELECT posts, fetched_on FROM social_cache WHERE source = 'instagram_profile' AND query = ?",
+                           (handle,)).fetchone()
+        if row and (today - date.fromisoformat(row["fetched_on"])).days < cfg.personas.refresh_days:
+            data = json.loads(row["posts"])
+        else:
+            try:
+                ig = instagram_brand(client, handle, today, cfg.apify.instagram_posts_per_profile)
+            except BudgetExhausted as exc:
+                log.warning("Instagram: %s", exc)
+                break
+            except ApifyError as exc:
+                log.warning("Instagram @%s: %s", handle, exc)
+                continue
+            data = ig.to_dict() if ig else None
+            conn.execute("INSERT OR REPLACE INTO social_cache VALUES (?,?,?,?)",
+                         ("instagram_profile", handle, today.isoformat(), json.dumps(data, ensure_ascii=False)))
+            conn.commit()
+        if data:
+            out[s.key] = data
+    return out
+
+
 def count_competitors(conn: sqlite3.Connection, phrases: list[str], exclude_key: str) -> int:
     keys: set[str] = set()
     for phrase in phrases:
@@ -248,6 +285,7 @@ class _Understood:
 def link_stores(
     conn: sqlite3.Connection, cfg: Config, stores: list[StoreResult], provider: TrendsProvider, today: date,
     *, extractor: ProductExtractor | None = None, page_fetcher: PageFetcher | None = None,
+    apify_client=None, ig_session=None,
 ) -> list[LinkedStore]:
     lc = cfg.link
     chosen = select_stores(stores, cfg)
@@ -302,6 +340,8 @@ def link_stores(
             results[tr.name] = tr
 
     traffic = traffic_signals(conn, cfg, chosen, provider, today) if lc.traffic else {}
+    instagram = instagram_signals(conn, cfg, chosen, apify_client, today, ig_session) \
+        if apify_client is not None and cfg.apify.instagram else {}
 
     linked = []
     for s in chosen:
@@ -335,6 +375,7 @@ def link_stores(
                 need_trend=need, need_score=need_home.score if need_home else None,
                 verdict=v, verdict_text=VERDICTS[v], verdict_basis=basis,
                 traffic=tsig.to_dict() if tsig else None,
+                instagram=instagram.get(s.key),
                 win_score=round(win_score(s.score, basis_score, v) * (tsig.factor if tsig else 1.0), 1)
                 if pk.seed else 0.0,
             )

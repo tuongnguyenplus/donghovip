@@ -130,7 +130,7 @@ def stats(posts: list[SocialPost], keywords: list[str], today: date) -> SocialSt
     v90 = sum(1 for p in posts if p.created >= d90)
     prev = sum(1 for p in posts if d180 <= p.created < d90)
     reddit = [p.score + p.comments for p in posts if p.source == "reddit"]
-    likes = [p.score for p in posts if p.source == "youtube_comment"]
+    likes = [p.score for p in posts if p.source in ("youtube_comment", "tiktok_comment")]
     eng = statistics.median(reddit) if reddit else (statistics.median(likes) if likes else None)
     phr = _phrases(keywords)
     match = sum(1 for p in posts if any(x in f"{p.title} {p.text}".lower() for x in phr)) if phr else 0

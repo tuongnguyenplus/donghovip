@@ -70,8 +70,9 @@ class Sess:
 
 
 def test_client_runs_polls_and_tracks_cost():
-    sess = Sess([R(201, {"data": {"id": "r1", "status": "RUNNING"}}),
-                 R(200, {"data": {"id": "r1", "status": "SUCCEEDED", "usageTotalUsd": 0.12, "defaultDatasetId": "d1"}}),
+    done = {"id": "r1", "status": "SUCCEEDED", "usageTotalUsd": 0.12, "defaultDatasetId": "d1"}
+    sess = Sess([R(201, {"data": {"id": "r1", "status": "RUNNING"}}), R(200, {"data": done}),
+                 R(200, {"data": done}),                       # đọc lại số liệu chi phí sau khi xong
                  R(200, [{"a": 1}, {"error": "blocked"}])])
     b = ApifyBudget(1.0)
     out = ApifyClient(b, token="t", session=sess, poll_seconds=0).run("apify/x", {"q": 1})
@@ -79,6 +80,23 @@ def test_client_runs_polls_and_tracks_cost():
     assert sess.calls[0][2]["params"]["maxTotalChargeUsd"] == 1.0   # trần = min(per_run_cap, còn lại)
     assert sess.headers["Authorization"] == "Bearer t"
     assert "apify~x" in sess.calls[0][1]
+
+
+def test_cost_uses_charged_events_when_reported_usage_lags():
+    """Thực tế đã gặp: Apify báo $0.001 lúc vừa xong, thật ra tính $0.038."""
+    ApifyClient._prices.clear()
+    lagging = {"id": "r2", "status": "SUCCEEDED", "usageTotalUsd": 0.001, "defaultDatasetId": "d2",
+               "chargedEventCounts": {"result": 10, "actor-start": 1}}
+    prices = {"pricingInfos": [{"pricingPerEvent": {"actorChargeEvents": {
+        "result": {"eventTieredPricingUsd": {"FREE": {"tieredEventPriceUsd": 0.0037},
+                                             "GOLD": {"tieredEventPriceUsd": 0.002}}},
+        "actor-start": {"eventPriceUsd": 0.001}}}}]}
+    sess = Sess([R(201, {"data": {"id": "r2", "status": "SUCCEEDED"}}), R(200, {"data": lagging}),
+                 R(200, {"data": prices}), R(200, [])])
+    b = ApifyBudget(1.0)
+    ApifyClient(b, token="t", session=sess, poll_seconds=0).run("clockworks/tiktok-scraper", {})
+    assert b.spent_usd == pytest.approx(0.038)                 # lấy giá bậc cao nhất → tính dư, không tính thiếu
+    ApifyClient._prices.clear()
 
 
 def test_client_never_exceeds_budget_and_handles_minimum_cap():

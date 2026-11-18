@@ -142,6 +142,15 @@ CREATE TABLE IF NOT EXISTS social_verdicts (
     created_on  TEXT NOT NULL
 );
 
+-- tài khoản mạng xã hội của store (tìm từ link trên website), cache 30 ngày
+CREATE TABLE IF NOT EXISTS brand_profiles (
+    domain     TEXT NOT NULL,
+    platform   TEXT NOT NULL,
+    handle     TEXT,
+    checked_on TEXT NOT NULL,
+    PRIMARY KEY (domain, platform)
+);
+
 CREATE TABLE IF NOT EXISTS domains (
     domain         TEXT PRIMARY KEY,
     registered_at  TEXT,

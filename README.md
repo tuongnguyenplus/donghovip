@@ -28,7 +28,9 @@ Winning product chỉ là một dạng của **angle/persona win mang tính th�
 |---|---|---|
 | Reddit | ✅ API chính thức | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` (tạo app loại "script" tại reddit.com/prefs/apps) |
 | YouTube (video + bình luận) | ✅ API chính thức | `YOUTUBE_API_KEY` (Google Cloud → YouTube Data API v3) |
-| TikTok / Instagram / Facebook | ⏳ qua connector | Không có API tìm kiếm công khai cho mục đích này: TikTok Research API chỉ cho học thuật, Instagram chỉ tìm theo hashtag và cần Meta duyệt app, Facebook group không có API. Sẽ nối qua dịch vụ bên thứ ba |
+| **TikTok** (video + bình luận) | ✅ qua Apify | `APIFY_TOKEN`. Quét như người dùng ở US, chỉ giữ tiếng Anh, **bỏ video là ad/tài trợ**, bình luận < 3 từ ("how much?") bị bỏ |
+| **Instagram** | ⚠️ theo profile brand | Tìm theo hashtag bị Instagram chặn (cần đăng nhập). Tool tìm tài khoản IG của store từ link trên website, rồi đo nhịp đăng, tương tác bài mới so với bài cũ, và lấy bình luận. Các chỉ số này dùng được trong hồ sơ (nhóm Traffic) |
+| Facebook group | ❌ | Không có API tìm kiếm |
 
 Không có key Claude thì tool chỉ đếm bài có chứa cụm từ của nỗi đau, **không bao giờ kết luận "Xác thực"**, và ghi rõ là chưa được Claude đọc.
 Bài viết được cache 7 ngày. Claude chỉ được gọi lại khi có bài mới.
@@ -85,7 +87,7 @@ Quét từ dòng lệnh: `winfinder scan` (tất cả) hoặc `winfinder scan --
 
 API Meta miễn phí chỉ trả ad thương mại chạy ở **EU**. Ad US được lấy qua Apify (actor `apify/facebook-ads-scraper`, cần `APIFY_TOKEN`, cấu hình ở `config.yaml → apify`):
 - Có **đường dẫn landing đầy đủ**, nên phân biệt được PDP, collection hay trang chủ chính xác, và **số phiên bản dùng chung creative** (tín hiệu nhân bản).
-- **Trần chi phí cho mỗi lần quét** (`budget_per_scan_usd`, mặc định $3): Apify tự dừng actor khi chạm trần, nên không bao giờ vượt ngân sách. Log ghi số tiền đã dùng. Tham khảo: khoảng $0.003–0.006 mỗi ad.
+- **Trần chi phí cho mỗi lần quét** (`budget_per_scan_usd`, mặc định $3): Apify tự dừng actor khi chạm trần, nên không bao giờ vượt ngân sách. Chi phí mỗi lượt được tính bằng **số sự kiện bị tính phí × giá niêm yết** của actor, lấy mức giá cao nhất nên chỉ có thể tính dư. Lý do: con số Apify trả về ngay khi actor vừa chạy xong thường chưa đủ (thực tế đã gặp $0.001 trong khi phí thật là $0.038). Log ghi số tiền đã dùng. Tham khảo: khoảng $0.003–0.006 mỗi ad.
 - Mỗi lần quét: lấy ad theo keyword của từng ngách, rồi **quét trọn page** của các store điểm cao.
 
 **Giới hạn: Ad Library chỉ hiện ad US đang chạy.** Tool xử lý để không ra số sai:
@@ -266,6 +268,7 @@ winfinder/
   expand.py              mở rộng store: mọi page, toàn bộ ad, lần ngược trang trung gian
   sources/apify.py       client Apify có trần chi phí mỗi lần quét
   sources/apify_fb.py    ad Facebook US: theo keyword, quét trọn page, suy ra ad đã tắt
+  sources/apify_social.py TikTok organic + bình luận, Instagram theo profile brand
   sources/landing.py     loại landing page, phân giải advertorial/listicle về store gốc
   analysis/scoring.py    gom theo store, chấm điểm
   analysis/trends.py     tách mùa vụ, đo xu hướng, phân loại keyword/chủ đề

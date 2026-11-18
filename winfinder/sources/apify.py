@@ -110,7 +110,9 @@ class ApifyClient:
                 break
             time.sleep(self.poll_seconds)
             data = self._req("GET", f"{API}/actor-runs/{run_id}")["data"]
-        cost = float(data.get("usageTotalUsd") or 0.0)
+        time.sleep(min(self.poll_seconds, 3))   # số liệu chi phí được cập nhật sau khi actor kết thúc
+        data = self._req("GET", f"{API}/actor-runs/{run_id}")["data"]
+        cost = self.run_cost(actor_id, data)
         self.budget.spent_usd += cost
         self.budget.runs.append({"actor": actor, "label": label, "status": data.get("status"), "cost": round(cost, 4)})
         log.info("Apify %s %s: %s, $%.3f (còn $%.2f)", actor, label, data.get("status"), cost, self.budget.remaining)
@@ -120,6 +122,37 @@ class ApifyClient:
                           params={"clean": "true", "format": "json"})
         # actor trả lỗi dưới dạng 1 item {"error": ...} khi bị chặn
         return [x for x in items if isinstance(x, dict) and not x.get("error")]
+
+
+    _prices: dict[str, dict[str, float]] = {}
+
+    def event_prices(self, actor_id: str) -> dict[str, float]:
+        """Giá từng sự kiện của actor — lấy mức CAO NHẤT trong các bậc (tính dư, không bao giờ tính thiếu)."""
+        if actor_id not in self._prices:
+            act = self._req("GET", f"{API}/acts/{actor_id}")["data"]
+            prices: dict[str, float] = {}
+            for info in (act.get("pricingInfos") or [])[-1:]:
+                for ev, v in ((info.get("pricingPerEvent") or {}).get("actorChargeEvents") or {}).items():
+                    tiers = [t.get("tieredEventPriceUsd") for t in (v.get("eventTieredPricingUsd") or {}).values()
+                             if isinstance(t, dict)]
+                    vals = [x for x in [v.get("eventPriceUsd"), *tiers] if isinstance(x, (int, float))]
+                    if vals:
+                        prices[ev] = max(vals)
+            self._prices[actor_id] = prices
+        return self._prices[actor_id]
+
+    def run_cost(self, actor_id: str, run: dict) -> float:
+        """Chi phí thật của một lượt: max(Apify báo, số sự kiện × giá niêm yết).
+
+        `usageTotalUsd` ngay lúc actor xong thường CHƯA đủ (được cập nhật sau) → không dùng một mình."""
+        reported = float(run.get("usageTotalUsd") or 0.0)
+        counts = run.get("chargedEventCounts") or {}
+        try:
+            prices = self.event_prices(actor_id) if counts else {}
+        except ApifyError:
+            prices = {}
+        estimated = sum(n * prices.get(ev, 0.0) for ev, n in counts.items())
+        return max(reported, estimated)
 
 
 def available() -> bool:

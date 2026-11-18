@@ -113,6 +113,9 @@ METRICS: dict[str, Metric] = {m.key: m for m in [
     Metric("brand_ratio", "Lượt tìm brand (6 tuần gần / trước)", "Traffic",
            norm=lambda x: _clamp((x - 0.7) / 1.8), fmt="{:.2f}×"),
     Metric("traffic_confirmed", "Store có traffic tăng cùng ad", "Traffic", norm=lambda x: _clamp(x / 3), fmt="{:.0f}"),
+    Metric("ig_engagement", "Tương tác Instagram brand (bài mới / bài cũ)", "Traffic",
+           norm=lambda x: _clamp((x - 0.7) / 1.8), fmt="{:.2f}×"),
+    Metric("ig_posts_30d", "Bài Instagram brand 30 ngày", "Traffic", norm=lambda x: _clamp(x / 12), fmt="{:.0f}"),
     # --- Angle
     Metric("angles_total", "Số angle đang chạy", "Angle", norm=lambda x: _clamp(x / 6), fmt="{:.0f}"),
     Metric("angles_rising", "Số angle đang lên / mới", "Angle", norm=lambda x: _clamp(x / 3), fmt="{:.0f}"),

@@ -115,6 +115,8 @@ def _trend_metrics(linked: dict | None) -> dict[str, Any]:
         "need_label": n.get("label"), "need_score": linked.get("need_score"),
         "traffic": tr.get("verdict"), "brand_ratio": tr.get("brand_ratio"),
         "competitors": linked.get("competitors"),
+        "ig_engagement": (linked.get("instagram") or {}).get("engagement_ratio"),
+        "ig_posts_30d": (linked.get("instagram") or {}).get("posts_30d"),
     }
 
 
@@ -175,6 +177,10 @@ def product_metrics(ev_stores: list[dict], all_stores: list[dict], linked: list[
     tm.pop("competitors", None)
     tm.pop("traffic", None)
     tm.pop("brand_ratio", None)
+    igs = sorted(x["instagram"]["engagement_ratio"] for x in linked
+                 if (x.get("instagram") or {}).get("engagement_ratio") is not None)
+    tm["ig_engagement"] = igs[len(igs) // 2] if igs else None
+    tm["ig_posts_30d"] = sum((x.get("instagram") or {}).get("posts_30d") or 0 for x in linked) or None
     m.update(tm)
     if angles:
         m["angles_total"] = len(angles)

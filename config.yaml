@@ -145,7 +145,7 @@ personas:
   max_products: 10
   max_angles: 4          # angle / sản phẩm (ưu tiên đang lên, mới xuất hiện)
   trends: true           # Trends cho keyword nỗi đau của persona
-  sources: [reddit, youtube]   # tiktok / instagram / facebook: cần connector bên thứ ba
+  sources: [tiktok, reddit, youtube]   # tiktok qua Apify; instagram: theo profile brand (hashtag bị chặn)
   lookback_days: 365
   refresh_days: 7        # không tìm lại cùng truy vấn trong N ngày
   sample_posts: 40       # số bài Claude đọc để xác minh mỗi angle

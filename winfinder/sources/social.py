@@ -165,7 +165,8 @@ class YouTubeSource:
         return out[:limit * 2]
 
 
-def make_sources(enabled: list[str], env: dict) -> tuple[list[SocialSource], list[str]]:
+def make_sources(enabled: list[str], env: dict, apify_client=None, apify_cfg=None
+                 ) -> tuple[list[SocialSource], list[str]]:
     """(nguồn dùng được, lý do các nguồn bị bỏ qua)."""
     sources: list[SocialSource] = []
     skipped = []
@@ -175,8 +176,16 @@ def make_sources(enabled: list[str], env: dict) -> tuple[list[SocialSource], lis
                 sources.append(RedditSource(env.get("REDDIT_CLIENT_ID", ""), env.get("REDDIT_CLIENT_SECRET", "")))
             elif name == "youtube":
                 sources.append(YouTubeSource(env.get("YOUTUBE_API_KEY", "")))
-            elif name in ("tiktok", "instagram", "facebook"):
-                skipped.append(f"{name}: chưa có API công khai — cần nối qua connector bên thứ ba")
+            elif name == "tiktok":
+                if apify_client is None or apify_cfg is None or not apify_cfg.tiktok:
+                    skipped.append("tiktok: cần APIFY_TOKEN (và apify.tiktok: true)")
+                else:
+                    from winfinder.sources.apify_social import TikTokSource
+                    sources.append(TikTokSource(apify_client, apify_cfg))
+            elif name == "instagram":
+                skipped.append("instagram: tìm theo chủ đề bị Instagram chặn — dùng theo profile brand ở bước Ứng viên")
+            elif name == "facebook":
+                skipped.append("facebook: group không có API tìm kiếm")
             else:
                 skipped.append(f"{name}: không hỗ trợ")
         except SocialError as exc:
